@@ -2,33 +2,36 @@
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block title %}{{ FIRM }}{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head><body>
-<header>
-  <span class="brand">{{ FIRM }}</span>
-  <span class="mode {{ MODE }}">{{ MODE }}</span>
-  <nav>
-  {% if user and user.status == 'approved' %}
+{% block page %}
+<div class="shell">
+  <aside class="side">
+    <div class="logo"><i></i>{{ FIRM }}</div>
+    {% set ep = request.endpoint %}
+    <nav>
     {% if user.is_admin %}
-      <a href="{{ url_for('admin_home') }}">Overview</a>
-      <a href="{{ url_for('admin_accounts') }}">Accounts</a>
-      <a href="{{ url_for('admin_payouts') }}">Payouts</a>
-      <a href="{{ url_for('admin_users') }}">Users</a>
-      <a href="{{ url_for('admin_plans') }}">Plans</a>
+      <a href="{{ url_for('admin_home') }}" class="{{ 'on' if ep in ['admin_home','admin_account','admin_trader_edit'] }}">Traders</a>
+      <a href="{{ url_for('admin_trader_new') }}" class="{{ 'on' if ep == 'admin_trader_new' }}">Add trader</a>
+      <a href="{{ url_for('export', what='daily') }}">Download daily results</a>
     {% else %}
-      <a href="{{ url_for('dashboard') }}">Dashboard</a>
-      <a href="{{ url_for('plans') }}">New challenge</a>
-      <a href="{{ url_for('payouts') }}">Payouts</a>
+      <a href="{{ url_for('dashboard') }}" class="{{ 'on' if ep in ['dashboard','trade'] }}">My account</a>
+      <a href="{{ url_for('report', aid=a.id) if a is defined and a else url_for('dashboard') }}" class="{{ 'on' if ep == 'report' }}">History</a>
     {% endif %}
-  {% endif %}
-  </nav>
-  {% if user %}<a class="small" href="{{ url_for('profile') }}">{{ user.username }}</a>
-  <a class="small" href="{{ url_for('logout') }}">Log out</a>{% endif %}
-</header>
-<main>
-{% with msgs = get_flashed_messages(with_categories=true) %}{% for c, m in msgs %}<div class="flash {{ c }}">{{ m }}</div>{% endfor %}{% endwith %}
-{% block body %}{% endblock %}
-</main>
+    </nav>
+    <div class="grow"></div>
+    <span class="mode {{ MODE }}">{{ 'Paper trading' if MODE == 'paper' else 'Demo account' if MODE == 'testnet' else 'Live' }}</span>
+    <div class="who">{{ user.full_name or user.username }}<br>
+      {% if user.is_admin %}<a href="{{ url_for('profile') }}">Password</a> · {% endif %}<a href="{{ url_for('logout') }}">Log out</a></div>
+  </aside>
+  <main>
+    {% with msgs = get_flashed_messages(with_categories=true) %}{% for c, m in msgs %}<div class="flash {{ c }}" role="status">{{ m }}</div>{% endfor %}{% endwith %}
+    {% block body %}{% endblock %}
+  </main>
+</div>
+{% endblock %}
 <script>const CSRF="{{ csrf_token() }}";</script>
 {% block scripts %}{% endblock %}
 </body></html>

@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Account #' ~ a.id if admin_view else 'My account' }} · {{ FIRM }}{% endblock %}
+{% block body %}
+{% set R = USD_INR %}
+<div class="top">
+  <div>
+    <h1>{{ (owner.full_name or owner.username) if admin_view else 'Your trading account' }}</h1>
+    <div class="sub">{{ ((plan.capital_inr or plan.account_size * R))|rs }} capital
+      · <span class="pill {{ a.status }}" id="statuspill">{{ STATUS.get(a.status, a.status) }}</span>
+      {% if admin_view %} · {{ owner.username }}{% endif %}</div>
+  </div>
+  {% if admin_view %}{% set url = url_for('admin_account_action', aid=a.id) %}
+  <div>
+    <a class="btn small" href="{{ url_for('admin_trader_edit', aid=a.id) }}">Edit rules</a>
+    <a class="btn small" href="{{ url_for('report', aid=a.id) }}">History</a>
+    <form method="post" action="{{ url }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      {% if a.status in ['active','paused_day'] %}
+        <button class="small" name="action" value="flatten">Close all positions</button>
+        <button class="small" name="action" value="block">Turn off trading</button>
+      {% elif a.status == 'closed' %}
+        <button class="small" name="action" value="reactivate">Turn on trading</button>
+      {% endif %}
+      <button class="small" name="action" value="restart" title="Fresh start: balance back to full capital, limits reset">Restart account</button>
+      {% if MODE != 'paper' %}<label class="inline small"><input type="checkbox" name="force">skip balance check</label>{% endif %}
+    </form>
+  </div>
+  {% else %}
+  <a class="btn small" href="{{ url_for('report', aid=a.id) }}">Full history</a>
+  {% endif %}
+</div>
+
+<div id="banner">{% if a.status_reason %}<div class="banner {{ '' if a.status in ['failed','closed'] else 'warn' }}">{{ a.status_reason }}</div>{% endif %}</div>
+
+<section class="runway" aria-label="Account equity and limits">
+  <div class="head">
+    <div>
+      <div class="mute small">Equity</div>
+      <div class="eq" id="eq">—</div>
+      <div class="chg" id="chg">&nbsp;</div>
+    </div>
+    <div style="text-align:right" id="share"></div>
+  </div>
+  <div class="track" id="track">
+    <div class="zone" id="zone" title="Today's loss limit"></div>
+    <div class="tick" id="tickstart" title="Starting capital"></div>
+    <div class="me" id="me" style="left:50%"><b id="melabel">now</b></div>
+  </div>
+  <div class="ends">
+    <div>Account fails at<b id="floor">—</b></div>
+    <div style="text-align:center">Today stops at<b id="daystop">—</b></div>
+    <div style="text-align:right" id="rightlabel">Goal<b id="goal">—</b></div>
+  </div>
+</section>
+
+<div class="strip" style="margin-bottom:18px">
+  <div class="stat"><div class="k">Today's P&amp;L</div><div class="v" id="day">—</div><div class="s" id="days">&nbsp;</div></div>
+  <div class="stat"><div class="k">Loss room today</div><div class="v" id="dayroom">—</div><div class="s" id="dayrooms">&nbsp;</div></div>
+  <div class="stat"><div class="k">Loss room overall</div><div class="v" id="ddroom">—</div><div class="s" id="ddrooms">&nbsp;</div></div>
+  <div class="stat"><div class="k">Open P&amp;L</div><div class="v" id="open">—</div><div class="s" id="opens">&nbsp;</div></div>
+</div>
+
+<div class="grid g2">
+  <div class="stack">
+    <div class="card">
+      <h2>Equity over time</h2>
+      <svg class="chart" id="chart" viewBox="0 0 1000 230" preserveAspectRatio="none" role="img" aria-label="Equity chart"></svg>
+      <div class="small faint" id="chartnote"></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center"><h2>Open positions</h2>
+        <button class="small ghost" id="closeall" onclick="closePos('__all__')">Close all</button></div>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Market</th><th class="num">Size</th><th class="num">Entry</th><th class="num">Mark</th><th class="num">P&amp;L</th><th></th></tr></thead>
+        <tbody id="positions"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+    <div class="card">
+      <h2>Recent activity</h2>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Time</th><th>Order</th><th class="num">Size</th><th class="num">Stop</th><th>Result</th></tr></thead>
+        <tbody>
+        {% for o in orders %}<tr><td class="mute">{{ o.ts|dt }}</td>
+          <td>{% if o.kind == 'entry' %}<span class="{{ 'pos' if o.side == 'buy' else 'neg' }}">{{ 'Buy' if o.side == 'buy' else 'Sell' }}</span> {{ o.symbol }}{% else %}{{ 'Auto-close' if o.kind == 'flatten' else 'Close' }} {{ o.symbol if o.symbol and o.symbol != '__all__' else 'all' }}{% endif %}</td>
+          <td class="num">{{ o.size or '' }}</td><td class="num">{{ o.stop_loss or '' }}</td>
+          <td class="small {{ 'neg' if o.status in ['rejected','error'] }}" style="white-space:normal;max-width:320px">{{ 'Placed' if o.status == 'sent' and o.kind == 'entry' else o.message }}</td></tr>
+        {% else %}<tr><td colspan="5" class="empty">No trades yet. Place your first order on the right.</td></tr>{% endfor %}
+        </tbody></table></div>
+    </div>
+  </div>
+
+  <div class="stack">
+    {% if not admin_view %}
+    <div class="card ticket">
+      <form id="ticket" onsubmit="send(event)">
+        <div class="sides" role="group" aria-label="Side">
+          <button type="button" class="buy on" id="sbuy" onclick="setSide('buy')">Buy / Long</button>
+          <button type="button" class="sell" id="ssell" onclick="setSide('sell')">Sell / Short</button>
+        </div>
+        <label>Market</label>
+        <div class="symbols">{% for s in rules.allowed_symbols %}
+          <label><input type="radio" name="symbol" value="{{ s }}" {{ 'checked' if loop.first }}><span>{{ s }}</span></label>{% endfor %}</div>
+        <div class="px">Mark price <b id="mark">—</b></div>
+        <div class="row">
+          <div><label for="otype">Type</label><select id="otype" name="order_type"><option value="market">Market</option><option value="limit">Limit</option></select></div>
+          <div><label for="lev">Leverage</label><select id="lev" name="leverage">
+            {% for l in [1,2,3,5,10,15,20,25,50,100] if l <= rules.max_leverage %}<option {{ 'selected' if l == ([5, rules.max_leverage]|min) }}>{{ l }}</option>{% endfor %}</select></div>
+        </div>
+        <div id="limitrow" hidden><label for="limit">Limit price</label><input id="limit" name="limit_price" type="number" step="any"></div>
+        <label for="size">Contracts</label><input id="size" name="size" type="number" min="1" step="1" value="1">
+        <div class="row">
+          <div><label for="sl">Stop-loss{% if rules.require_stop_loss %} (required){% endif %}</label><input id="sl" name="stop_loss" type="number" step="any"></div>
+          <div><label for="tp">Take-profit</label><input id="tp" name="take_profit" type="number" step="any"></div>
+        </div>
+        <div class="summary" id="summary">
+          <div><span>Position value</span><b id="notional">—</b></div>
+          <div><span>Margin used</span><b id="margin">—</b></div>
+          <div><span>Loss if stop hits</span><b id="risk">—</b></div>
+        </div>
+        <button class="place buy" id="place">Buy</button>
+        <div class="msg" id="msg" role="status"></div>
+      </form>
+    </div>
+    {% else %}
+    <div class="card">
+      <h2>Trader</h2>
+      <dl class="kv">
+        <dt>Email</dt><dd>{{ owner.username }}</dd>
+        {% if owner.phone %}<dt>Phone</dt><dd>{{ owner.phone }}</dd>{% endif %}
+        <dt>Last login</dt><dd>{{ owner.last_login|dt }}</dd>
+        <dt>Delta sub-account</dt><dd>{{ a.subaccount_label or ('paper' if MODE == 'paper' else 'not set') }}</dd>
+        <dt>Last check</dt><dd id="lastcheck">{{ a.last_check|dt }}</dd>
+      </dl>
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <h2>Rules</h2>
+      <div class="rule" id="r-day"><span class="n">Daily loss limit · {{ rules.daily_loss_pct }}%</span><span class="val" id="r-day-v">—</span>
+        <div class="meter"><i style="width:0"></i></div>
+        <span class="hint">{{ 'Hitting it ends the account' if rules.daily_loss_action == 'fail' else 'Hitting it pauses trading until midnight IST' }}</span></div>
+      <div class="rule" id="r-dd"><span class="n">Max loss · {{ rules.max_drawdown_pct }}%{{ ' trailing' if rules.drawdown_type == 'trailing' }}</span><span class="val" id="r-dd-v">—</span>
+        <div class="meter"><i style="width:0"></i></div><span class="hint">Hitting it ends the account</span></div>
+      {% if plan.goal_pct %}
+      <div class="rule" id="r-goal"><span class="n">Profit goal · {{ plan.goal_pct }}%</span><span class="val" id="r-goal-v">—</span>
+        <div class="meter"><i style="width:0"></i></div></div>
+      {% endif %}
+      <ul class="flat" style="margin-top:8px">
+        <li>Leverage up to <b>{{ rules.max_leverage }}x</b></li>
+        <li>Loss per trade at stop ≤ <b>{{ rules.max_risk_per_trade_pct }}%</b> ({{ (plan.account_size * R * rules.max_risk_per_trade_pct / 100)|rs }})</li>
+        {% if rules.require_stop_loss %}<li><b>Stop-loss</b> on every trade</li>{% endif %}
+        <li>Up to <b>{{ rules.max_open_positions }}</b> open positions · trades today <b id="tt">0</b> / {{ rules.max_trades_per_day }}</li>
+        <li>Markets: <b>{{ rules.allowed_symbols|join(', ') }}</b></li>
+        {% if rules.trading_hours %}<li>Hours: <b>{{ rules.trading_hours }}</b> IST</li>{% endif %}
+        {% if plan.profit_split_pct %}<li>Your profit share: <b>{{ plan.profit_split_pct|round(0)|int }}%</b></li>{% endif %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ADMIN = {{ 'true' if admin_view else 'false' }}, R = {{ USD_INR }}, RISK_PCT = {{ rules.max_risk_per_trade_pct }};
+const API = "{{ url_for('api_state', aid=a.id) }}";
+const snaps = {{ snaps|tojson }};
+let S = null, side = "buy";
+const $ = id => document.getElementById(id);
+const inr = (usd, sign) => { if (usd == null || isNaN(usd)) return "—"; const v = usd * R;
+  return (sign && v > 0 ? "+" : v < 0 ? "−" : "") + "₹" + Math.abs(v).toLocaleString("en-IN", {maximumFractionDigits: 0}); };
+const usd = v => v == null ? "—" : Number(v).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const cls = v => v > 0 ? "pos" : v < 0 ? "neg" : "";
+const pctOf = (x, lo, hi) => Math.max(0, Math.min(100, (x - lo) / (hi - lo || 1) * 100));
+
+function meter(id, frac, text) {
+  const el = $(id); if (!el) return;
+  el.querySelector("i").style.width = Math.max(0, Math.min(100, frac * 100)) + "%";
+  el.className = "rule" + (frac > 0.8 ? " bad" : frac > 0.5 ? " warn" : "");
+  $(id + "-v").textContent = text;
+}
+
+async function refresh() {
+  try { S = await (await fetch(API)).json(); } catch (e) { return; }
+  const m = S.metrics;
+  $("eq").innerHTML = `${inr(m.equity)}<small>${usd(m.equity)} USD</small>`;
+  $("chg").innerHTML = `<span class="${cls(m.total_pnl)}">${inr(m.total_pnl, 1)} (${m.total_pnl_pct >= 0 ? "+" : ""}${m.total_pnl_pct.toFixed(2)}%)</span> <span class="mute">since start</span>`;
+  if (m.profit_split_pct) $("share").innerHTML = `<div class="mute small">${ADMIN ? "Their" : "Your"} share (${Math.round(m.profit_split_pct)}%)</div>
+     <div style="font-size:22px;font-weight:800" class="pos">${inr(m.trader_share_usd)}</div>`;
+
+  // runway: fail floor -> goal (or the same distance above start)
+  const lo = m.dd_floor, hi = m.goal_equity || (m.starting_balance + (m.starting_balance - m.dd_floor));
+  const dayStop = m.equity - m.daily_loss_left;
+  $("me").style.left = Math.max(4, Math.min(96, pctOf(m.equity, lo, hi))) + "%";
+  $("melabel").textContent = inr(m.equity);
+  $("tickstart").style.left = pctOf(m.starting_balance, lo, hi) + "%";
+  $("zone").style.left = pctOf(dayStop, lo, hi) + "%";   // dashed marker: where today's trading stops
+  $("floor").textContent = inr(lo); $("daystop").textContent = inr(Math.max(dayStop, lo));
+  $("goal").textContent = inr(hi);
+  if (!m.goal_equity) $("rightlabel").firstChild.textContent = "Start + " + Math.round((hi / m.starting_balance - 1) * 100) + "%";
+
+  const open = S.positions.reduce((t, p) => t + p.unrealized_pnl, 0);
+  $("day").innerHTML = `<span class="${cls(m.daily_pnl)}">${inr(m.daily_pnl, 1)}</span>`;
+  $("days").textContent = `${m.daily_pnl_pct >= 0 ? "+" : ""}${m.daily_pnl_pct.toFixed(2)}% of capital`;
+  $("dayroom").textContent = inr(Math.max(0, m.daily_loss_left)); $("dayrooms").textContent = `of ${inr(m.daily_loss_limit)} limit`;
+  $("ddroom").textContent = inr(Math.max(0, m.dd_left)); $("ddrooms").textContent = `account fails below ${inr(m.dd_floor)}`;
+  $("open").innerHTML = `<span class="${cls(open)}">${inr(open, 1)}</span>`; $("opens").textContent = `${S.positions.length} position${S.positions.length == 1 ? "" : "s"}`;
+
+  meter("r-day", 1 - m.daily_loss_left / m.daily_loss_limit, `${inr(Math.max(0, m.daily_loss_limit - m.daily_loss_left))} / ${inr(m.daily_loss_limit)}`);
+  const ddUsed = (m.starting_balance - m.dd_floor) - m.dd_left;
+  meter("r-dd", ddUsed / (m.starting_balance - m.dd_floor), `${inr(Math.max(0, ddUsed))} / ${inr(m.starting_balance - m.dd_floor)}`);
+  if (m.goal_equity) { const g = Math.max(0, m.goal_progress_pct) / 100; meter("r-goal", 0, `${Math.round(g * 100)}%`);
+    $("r-goal").className = "rule"; $("r-goal").querySelector("i").style.width = Math.min(100, g * 100) + "%"; }
+  $("tt").textContent = S.trades_today;
+
+  const pill = $("statuspill"); pill.className = "pill " + S.status; pill.textContent = S.status_label;
+  let ban = "";
+  if (S.status === "failed" || S.status === "closed") ban = `<div class="banner">${S.reason || S.status_label}</div>`;
+  else if (S.status !== "active") ban = `<div class="banner warn">${S.status_label}. ${S.reason || ""}</div>`;
+  else if (!S.within_hours) ban = `<div class="banner warn">Outside trading hours.</div>`;
+  if (S.last_error) ban += `<div class="banner warn">Can't reach the exchange: ${S.last_error}</div>`;
+  $("banner").innerHTML = ban;
+
+  $("positions").innerHTML = S.positions.map(p => `<tr><td><b>${p.symbol}</b> <span class="small ${p.size > 0 ? "pos" : "neg"}">${p.size > 0 ? "Long" : "Short"}</span></td>
+    <td class="num">${Math.abs(p.size)}</td><td class="num">${usd(p.entry_price)}</td><td class="num">${usd(p.mark_price)}</td>
+    <td class="num ${cls(p.unrealized_pnl)}"><b>${inr(p.unrealized_pnl, 1)}</b></td>
+    <td class="num">${ADMIN ? "" : `<button class="small" onclick="closePos('${p.symbol}')">Close</button>`}</td></tr>`).join("")
+    || `<tr><td colspan="6" class="empty">No open positions</td></tr>`;
+  $("closeall").hidden = ADMIN || !S.positions.length;
+  if (!ADMIN) { $("place").disabled = S.status !== "active"; preview(); }
+}
+
+function sym() { const r = document.querySelector("input[name=symbol]:checked"); return r ? r.value : ""; }
+function setSide(s) { side = s; $("sbuy").classList.toggle("on", s === "buy"); $("ssell").classList.toggle("on", s === "sell");
+  $("place").className = "place " + s; preview(); }
+function preview() {
+  if (!S || ADMIN) return;
+  const s = sym(), px = S.prices[s], cv = S.contract_values[s];
+  $("mark").textContent = px ? usd(px) : "—";
+  const entry = $("otype").value === "limit" ? parseFloat($("limit").value) : px;
+  const size = parseInt($("size").value || 0), sl = parseFloat($("sl").value), lev = parseInt($("lev").value || 1);
+  $("place").textContent = `${side === "buy" ? "Buy" : "Sell"} ${size || ""} ${s}`;
+  if (!entry || !size) { $("notional").textContent = $("margin").textContent = $("risk").textContent = "—"; return; }
+  const notional = size * cv * entry;
+  $("notional").textContent = inr(notional); $("margin").textContent = inr(notional / lev);
+  if (sl) { const risk = size * cv * Math.abs(entry - sl), max = S.metrics.starting_balance * RISK_PCT / 100;
+    $("risk").innerHTML = `<span class="${risk > max ? "neg" : ""}">${inr(risk)}</span> <span class="faint">max ${inr(max)}</span>`; }
+  else $("risk").textContent = "set a stop-loss";
+}
+if (!ADMIN) {
+  ["otype", "limit", "size", "sl", "lev"].forEach(id => $(id).addEventListener("input", preview));
+  document.querySelectorAll("input[name=symbol]").forEach(r => r.addEventListener("change", preview));
+  $("otype").addEventListener("change", () => $("limitrow").hidden = $("otype").value !== "limit");
+}
+async function post(url, fd) { fd.append("csrf", CSRF); return (await fetch(url, {method: "POST", body: fd})).json(); }
+async function send(e) {
+  e.preventDefault();
+  const fd = new FormData($("ticket")); fd.append("side", side);
+  $("msg").className = "msg"; $("msg").textContent = "Sending…"; $("place").disabled = true;
+  const j = await post("{{ url_for('order', aid=a.id) }}", fd);
+  $("msg").className = "msg " + (j.ok ? "ok" : "err"); $("msg").textContent = j.message;
+  setTimeout(refresh, 700);
+}
+async function closePos(s) {
+  const fd = new FormData(); fd.append("symbol", s);
+  const j = await post("{{ url_for('close', aid=a.id) }}", fd);
+  if (!ADMIN) { $("msg").className = "msg " + (j.ok ? "ok" : "err"); $("msg").textContent = j.message; }
+  setTimeout(refresh, 700);
+}
+
+(function chart() {
+  const svg = $("chart");
+  if (snaps.length < 2) { $("chartnote").textContent = "The chart fills in after a few minutes."; return; }
+  const ys = snaps.map(s => s.equity), lo = Math.min(...ys), hi = Math.max(...ys), pad = (hi - lo) * .12 || 1;
+  const t0 = snaps[0].ts, t1 = snaps[snaps.length - 1].ts;
+  const X = t => (t - t0) / (t1 - t0 || 1) * 1000, Y = v => 230 - (v - (lo - pad)) / ((hi + pad) - (lo - pad)) * 230;
+  const pts = snaps.map(s => `${X(s.ts).toFixed(1)},${Y(s.equity).toFixed(1)}`);
+  const up = ys[ys.length - 1] >= ys[0], c = up ? "#2ED3A3" : "#FF6B6B";
+  svg.innerHTML = `<defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${c}" stop-opacity=".28"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></linearGradient></defs>
+    <polygon points="0,230 ${pts.join(" ")} 1000,230" fill="url(#fill)"/>
+    <polyline points="${pts.join(" ")}" fill="none" stroke="${c}" stroke-width="2.2" vector-effect="non-scaling-stroke"/>`;
+  $("chartnote").textContent = `${new Date(t0 * 1000).toLocaleString()} – ${new Date(t1 * 1000).toLocaleString()}`;
+})();
+refresh(); setInterval(refresh, 3000);
+</script>
+{% endblock %}

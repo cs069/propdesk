@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit trader' if a else 'Add trader' }} · {{ FIRM }}{% endblock %}
+{% block body %}
+<div class="top"><div><h1>{{ 'Edit ' ~ (f.full_name or f.email) if a else 'Add a trader' }}</h1>
+  <div class="sub">{{ 'Rule changes apply straight away. A new capital amount applies when you restart the account.' if a else 'Your friend logs in with this email and a 6-digit code. No password needed.' }}</div></div></div>
+
+<form method="post" class="grid g2">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <div class="card">
+    <h2>Who and how much</h2>
+    <div class="row">
+      <div><label for="email">Email</label><input id="email" name="email" type="email" value="{{ f.get('email','') }}" {{ 'disabled' if a else 'required autofocus' }}></div>
+      <div><label for="name">Name</label><input id="name" name="full_name" value="{{ f.get('full_name','') }}" placeholder="Ravi"></div>
+    </div>
+    <div class="row">
+      <div><label for="cap">Capital (₹)</label><input id="cap" name="capital_inr" type="number" step="1" min="1000" value="{{ f.get('capital_inr', 100000)|int }}" required>
+        <div class="small faint" id="capusd" style="margin-top:4px"></div></div>
+      <div><label for="phone">Phone (optional)</label><input id="phone" name="phone" value="{{ f.get('phone','') }}"></div>
+    </div>
+    <div class="row">
+      <div><label for="split">Their profit share %</label><input id="split" name="profit_split_pct" type="number" step="any" value="{{ f.get('profit_split_pct', 80) }}"></div>
+      <div><label for="goal">Profit goal % (0 = none)</label><input id="goal" name="goal_pct" type="number" step="any" value="{{ f.get('goal_pct', 10) }}"></div>
+    </div>
+
+    {% if MODE != 'paper' %}
+    <h2 style="margin-top:22px">Delta sub-account</h2>
+    <p class="small mute" style="margin-top:-6px">Create a sub-account on Delta, move the capital into it, then create an API key on it with <b>Read + Trading</b> only, locked to this computer's IP.</p>
+    <label for="label">Sub-account name</label><input id="label" name="label" value="{{ f.get('label','') }}" placeholder="ravi-1">
+    <div class="row">
+      <div><label for="key">API key{% if a and a.api_key %} (saved){% endif %}</label><input id="key" name="api_key" autocomplete="off"></div>
+      <div><label for="sec">API secret{% if a and a.api_secret %} (saved){% endif %}</label><input id="sec" name="api_secret" type="password" autocomplete="off"></div>
+    </div>
+    {% if not a %}<label class="check"><input type="checkbox" name="force">Start even if the sub-account balance doesn't match the capital</label>{% endif %}
+    {% else %}
+    <p class="small mute" style="margin-top:20px">Paper trading: no Delta keys needed. Trades are simulated on live prices.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Rules</h2>
+    <div class="row">
+      <div><label for="dl">Daily loss limit %</label><input id="dl" name="daily_loss_pct" type="number" step="any" value="{{ rules.daily_loss_pct }}"></div>
+      <div><label for="dla">When hit</label><select id="dla" name="daily_loss_action">
+        <option value="fail" {{ 'selected' if rules.daily_loss_action == 'fail' }}>End account</option>
+        <option value="pause" {{ 'selected' if rules.daily_loss_action == 'pause' }}>Pause for the day</option></select></div>
+    </div>
+    <div class="row">
+      <div><label for="dd">Max loss %</label><input id="dd" name="max_drawdown_pct" type="number" step="any" value="{{ rules.max_drawdown_pct }}"></div>
+      <div><label for="ddt">Measured from</label><select id="ddt" name="drawdown_type">
+        <option value="static" {{ 'selected' if rules.drawdown_type == 'static' }}>Starting capital</option>
+        <option value="trailing" {{ 'selected' if rules.drawdown_type == 'trailing' }}>Highest equity</option></select></div>
+    </div>
+    <div class="row">
+      <div><label for="lev">Max leverage</label><input id="lev" name="max_leverage" type="number" value="{{ rules.max_leverage }}"></div>
+      <div><label for="rpt">Max loss per trade %</label><input id="rpt" name="max_risk_per_trade_pct" type="number" step="any" value="{{ rules.max_risk_per_trade_pct }}"></div>
+    </div>
+    <div class="row">
+      <div><label for="mop">Positions</label><input id="mop" name="max_open_positions" type="number" value="{{ rules.max_open_positions }}"></div>
+      <div><label for="mtd">Trades per day</label><input id="mtd" name="max_trades_per_day" type="number" value="{{ rules.max_trades_per_day }}"></div>
+      <div><label for="mco">Size limit</label><input id="mco" name="max_contracts_per_order" type="number" value="{{ rules.max_contracts_per_order }}"></div>
+    </div>
+    <label for="sym">Markets</label><input id="sym" name="allowed_symbols" value="{{ rules.allowed_symbols|join(', ') }}">
+    <label for="hrs">Trading hours IST (empty = any time)</label><input id="hrs" name="trading_hours" value="{{ rules.trading_hours }}" placeholder="09:00-23:00">
+    <label class="check" style="margin-top:16px"><input type="checkbox" name="require_stop_loss" {{ 'checked' if rules.require_stop_loss }}>Stop-loss required on every trade</label>
+    <div class="small faint" id="money" style="margin-top:14px"></div>
+    <p style="margin-top:18px"><button class="primary">{{ 'Save changes' if a else 'Add trader and start' }}</button>
+      <a class="btn ghost" href="{{ url_for('admin_account', aid=a.id) if a else url_for('admin_home') }}">Cancel</a></p>
+  </div>
+</form>
+{% if a %}
+<form method="post" action="{{ url_for('admin_account_action', aid=a.id) }}" class="card" style="margin-top:18px">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <h2>Remove</h2>
+  <label class="check"><input type="checkbox" required>Delete this account and all its history</label>
+  <p><button class="small sell" name="action" value="delete">Delete account</button></p>
+</form>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+const R = {{ USD_INR }}, $ = id => document.getElementById(id);
+function upd() {
+  const c = parseFloat($("cap").value) || 0, f = (id) => "₹" + Math.round(c * (parseFloat($(id).value) || 0) / 100).toLocaleString("en-IN");
+  $("capusd").textContent = `= ${(c / R).toFixed(2)} USD on Delta (₹${R}/USD)`;
+  $("money").textContent = `With ₹${c.toLocaleString("en-IN")}: daily limit ${f("dl")}, max loss ${f("dd")}, max loss per trade ${f("rpt")}.`;
+}
+["cap", "dl", "dd", "rpt"].forEach(id => $(id).addEventListener("input", upd)); upd();
+</script>
+{% endblock %}

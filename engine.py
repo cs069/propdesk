@@ -125,6 +125,11 @@ def metrics(acc, equity=None):
         "days_elapsed": elapsed,
         "days_left": (plan["max_days"] - elapsed) if plan["max_days"] and acc["phase"] != "funded" else None,
     }
+    goal = plan.get("goal_pct") or 0
+    out["goal_pct"] = goal
+    out["goal_equity"] = sb * (1 + goal / 100) if goal else None
+    out["goal_progress_pct"] = ((eq - sb) / (sb * goal / 100) * 100) if goal else None
+    out["usd_inr"] = config.USD_INR
     if acc["phase"] == "funded":
         out["profit_split_pct"] = plan["profit_split_pct"]
         out["trader_share_usd"] = max(0.0, eq - sb) * plan["profit_split_pct"] / 100

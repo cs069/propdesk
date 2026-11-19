@@ -1,12 +1,36 @@
 {% extends "base.html" %}
-{% block body %}
-<div class="card login">
-  <h1>Sign in to {{ FIRM }}</h1>
-  <form method="post">
-    <label>Username</label><input name="username" autofocus autocomplete="username">
-    <label>Password</label><input name="password" type="password" autocomplete="current-password">
-    <p><button class="primary" style="width:100%">Sign in</button></p>
-  </form>
-  {% if reg_open %}<p class="mute small">New here? <a href="{{ url_for('register') }}">Create an account</a></p>{% endif %}
+{% block title %}Log in · {{ FIRM }}{% endblock %}
+{% block page %}
+<div class="auth">
+  <div class="card">
+    <div class="logo"><i></i>{{ FIRM }}</div>
+    {% with msgs = get_flashed_messages(with_categories=true) %}{% for c, m in msgs %}<div class="flash {{ c }}" role="status">{{ m }}</div>{% endfor %}{% endwith %}
+    {% if step == 'code' %}
+      <h1>Check your email</h1>
+      <p class="sub">We sent a 6-digit code to <b>{{ email }}</b>.</p>
+      <form method="post">
+        <input type="hidden" name="action" value="verify">
+        <label for="code">Login code</label>
+        <input id="code" class="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" autofocus required>
+        <p><button class="primary" style="width:100%">Log in</button></p>
+      </form>
+      <form method="post" class="row">
+        <input type="hidden" name="email" value="{{ email }}">
+        <button class="ghost small" name="action" value="send">Send a new code</button>
+        <button class="ghost small" name="action" value="change">Use another email</button>
+      </form>
+      {% if not email_enabled %}<div class="devcode">Email isn't set up yet, so the admin can see your code on their dashboard.</div>{% endif %}
+    {% else %}
+      <h1>Log in to trade</h1>
+      <p class="sub">Enter the email your admin added.</p>
+      <form method="post">
+        <input type="hidden" name="action" value="send">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="email" value="{{ email }}" autofocus required>
+        <p><button class="primary" style="width:100%">Email me a code</button></p>
+      </form>
+    {% endif %}
+    <p class="small faint" style="text-align:center;margin:18px 0 0"><a href="{{ url_for('admin_login') }}" class="faint">Admin login</a></p>
+  </div>
 </div>
 {% endblock %}

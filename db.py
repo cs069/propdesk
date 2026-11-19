@@ -96,9 +96,22 @@ def conn():
         c.close()
 
 
+MIGRATIONS = [
+    ("users", "otp_hash", "TEXT DEFAULT ''"),
+    ("users", "otp_expires", "REAL DEFAULT 0"),
+    ("users", "otp_tries", "INTEGER DEFAULT 0"),
+    ("users", "otp_sent_at", "REAL DEFAULT 0"),
+    ("users", "last_login", "REAL"),
+]
+
+
 def init():
     with conn() as c:
         c.executescript(SCHEMA)
+        for table, col, decl in MIGRATIONS:
+            cols = [r[1] for r in c.execute(f"PRAGMA table_info({table})")]
+            if col not in cols:
+                c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
 
 
 def q(sql, args=(), one=False):

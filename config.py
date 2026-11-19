@@ -43,10 +43,22 @@ ADMIN_USERNAME = env("PROPDESK_ADMIN_USER", "admin")
 ADMIN_PASSWORD = env("PROPDESK_ADMIN_PASSWORD")       # used only on first start
 
 # ---- Registration -----------------------------------------------------
-REGISTRATION_OPEN = env("PROPDESK_REGISTRATION_OPEN", "1") == "1"
+REGISTRATION_OPEN = env("PROPDESK_REGISTRATION_OPEN", "0") == "1"   # admin adds traders by email
 # If set, people who enter this code are approved instantly; others wait for admin approval.
 INVITE_CODE = env("PROPDESK_INVITE_CODE", "")
 MAX_OPEN_ACCOUNTS_PER_USER = int(env("PROPDESK_MAX_ACCOUNTS", "2"))
+
+# ---- Email login codes (OTP) ------------------------------------------
+# Leave SMTP_HOST empty to run without email: codes are printed in the terminal
+# and shown on the admin dashboard so you can pass them on.
+SMTP_HOST = env("SMTP_HOST", "")
+SMTP_PORT = int(env("SMTP_PORT", "587"))
+SMTP_USER = env("SMTP_USER", "")
+SMTP_PASS = env("SMTP_PASS", "")
+SMTP_FROM = env("SMTP_FROM", "") or SMTP_USER
+OTP_TTL_SEC = 10 * 60
+OTP_MAX_TRIES = 5
+OTP_RESEND_SEC = 30
 
 # ---- Money ------------------------------------------------------------
 SETTLE_ASSET = env("PROPDESK_SETTLE_ASSET", "USD")    # Delta India wallets are USD-denominated

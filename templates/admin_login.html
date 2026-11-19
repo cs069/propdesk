@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Admin · {{ FIRM }}{% endblock %}
+{% block page %}
+<div class="auth">
+  <div class="card">
+    <div class="logo"><i></i>{{ FIRM }}</div>
+    {% with msgs = get_flashed_messages(with_categories=true) %}{% for c, m in msgs %}<div class="flash {{ c }}">{{ m }}</div>{% endfor %}{% endwith %}
+    <h1>Admin login</h1>
+    <form method="post">
+      <label for="u">Username</label><input id="u" name="username" value="admin" autocomplete="username">
+      <label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" autofocus>
+      <p><button class="primary" style="width:100%">Log in</button></p>
+    </form>
+    <p class="small faint" style="text-align:center;margin:18px 0 0"><a href="{{ url_for('login') }}" class="faint">Trader login</a></p>
+  </div>
+</div>
+{% endblock %}

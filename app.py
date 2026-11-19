@@ -20,6 +20,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import config
 import db
 import engine
+import mailer
 from delta_client import DeltaError
 from engine import LifecycleError
 
@@ -36,7 +37,30 @@ def money(v):
 
 @app.template_filter("inr")
 def inr(v):
-    return "—" if v is None else f"₹{v:,.0f}"
+    return rupees(v)
+
+
+def rupees(v, sign=False):
+    """Indian digit grouping: 100000 -> ₹1,00,000"""
+    if v is None:
+        return "—"
+    neg, n = v < 0, str(int(round(abs(v))))
+    head, tail = n[:-3], n[-3:]
+    while len(head) > 2:
+        tail = head[-2:] + "," + tail
+        head = head[:-2]
+    body = (head + "," + tail) if head else tail
+    return ("−" if neg else "+" if sign and v > 0 else "") + "₹" + body
+
+
+@app.template_filter("rs")
+def rs(v):
+    return rupees(v)
+
+
+@app.template_filter("rs_signed")
+def rs_signed(v):
+    return rupees(v, sign=True)
 
 
 @app.template_filter("pct")
@@ -64,7 +88,7 @@ app.jinja_env.globals.update(
 
 @app.before_request
 def check_csrf():
-    if request.method == "POST" and request.endpoint not in ("login", "register"):
+    if request.method == "POST" and request.endpoint not in ("login", "register", "admin_login"):
         tok = request.form.get("csrf") or request.headers.get("X-CSRF")
         if not tok or tok != session.get("csrf"):
             abort(400, "Session expired — reload the page and try again")
@@ -120,17 +144,75 @@ def home():
     return redirect(url_for("admin_home" if u["is_admin"] else "dashboard"))
 
 
+def _start_session(u):
+    session.clear()
+    session["uid"] = u["id"]
+    db.x("UPDATE users SET last_login=? WHERE id=?", (time.time(), u["id"]))
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    """Traders log in with their email + a 6-digit code."""
+    step = "email"
+    email = session.get("otp_email", "")
     if request.method == "POST":
-        u = db.q("SELECT * FROM users WHERE username=?", (request.form.get("username", "").strip().lower(),), one=True)
-        if u and u["status"] != "disabled" and check_password_hash(u["pw_hash"], request.form.get("password", "")):
-            session.clear()
-            session["uid"] = u["id"]
-            return redirect(url_for("home"))
+        act = request.form.get("action")
+        if act == "send":
+            email = (request.form.get("email") or "").strip().lower()
+            u = db.q("SELECT * FROM users WHERE username=? AND is_admin=0", (email,), one=True)
+            if not u or u["status"] != "approved":
+                time.sleep(1)
+                flash("This email doesn't have access. Ask the admin to add you.", "error")
+            elif time.time() - (u["otp_sent_at"] or 0) < config.OTP_RESEND_SEC:
+                flash("A code was just sent. Wait a few seconds before asking again.", "error")
+                session["otp_email"], step = email, "code"
+            else:
+                code = f"{secrets.randbelow(10**6):06d}"
+                db.x("UPDATE users SET otp_hash=?, otp_expires=?, otp_tries=0, otp_sent_at=? WHERE id=?",
+                     (generate_password_hash(code), time.time() + config.OTP_TTL_SEC, time.time(), u["id"]))
+                try:
+                    mailer.send_code(email, u["full_name"], code)
+                    session["otp_email"], step = email, "code"
+                except Exception as e:  # SMTP problems
+                    flash(f"Couldn't send the email: {e}", "error")
+        elif act == "verify" and email:
+            step = "code"
+            code = re.sub(r"\D", "", request.form.get("code") or "")
+            u = db.q("SELECT * FROM users WHERE username=? AND is_admin=0", (email,), one=True)
+            if not u or not u["otp_hash"] or time.time() > (u["otp_expires"] or 0):
+                flash("That code has expired. Send a new one.", "error")
+                step = "email"
+            elif u["otp_tries"] >= config.OTP_MAX_TRIES:
+                flash("Too many wrong codes. Send a new one.", "error")
+                step = "email"
+            elif check_password_hash(u["otp_hash"], code):
+                db.x("UPDATE users SET otp_hash='', otp_expires=0, otp_tries=0 WHERE id=?", (u["id"],))
+                _start_session(u)
+                return redirect(url_for("dashboard"))
+            else:
+                db.x("UPDATE users SET otp_tries=otp_tries+1 WHERE id=?", (u["id"],))
+                time.sleep(1)
+                flash("Wrong code. Check the latest email and try again.", "error")
+        elif act == "change":
+            session.pop("otp_email", None)
+            email = ""
+    elif email and request.args.get("step") == "code":
+        step = "code"
+    return render_template("login.html", user=None, step=step, email=email,
+                           email_enabled=mailer.email_enabled())
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        u = db.q("SELECT * FROM users WHERE username=? AND is_admin=1",
+                 (request.form.get("username", "").strip().lower(),), one=True)
+        if u and check_password_hash(u["pw_hash"], request.form.get("password", "")):
+            _start_session(u)
+            return redirect(url_for("admin_home"))
         time.sleep(1)
         flash("Wrong username or password", "error")
-    return render_template("login.html", user=None, reg_open=config.REGISTRATION_OPEN)
+    return render_template("admin_login.html", user=None)
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -212,6 +294,9 @@ def profile(u):
 @login_required()
 def dashboard(u):
     accs = db.q("SELECT * FROM accounts WHERE user_id=? ORDER BY id DESC", (u["id"],))
+    live = [a for a in accs if a["status"] not in ("pending_payment", "payment_review", "awaiting_setup")]
+    if len(live) == 1 and len(accs) == 1:
+        return redirect(url_for("trade", aid=live[0]["id"]))
     for a in accs:
         a["m"] = engine.metrics(a) if a["starting_balance"] else None
     pays = db.q("SELECT * FROM payouts WHERE user_id=? ORDER BY id DESC", (u["id"],))
@@ -279,7 +364,17 @@ def trade(u, aid):
     a = own_account(u, aid)
     if a["status"] in ("pending_payment", "payment_review", "awaiting_setup"):
         return redirect(url_for("dashboard"))
-    return render_template("trade.html", user=u, a=a, rules=db.rules_of(a), plan=db.plan_of(a))
+    return render_template("account.html", **account_ctx(u, a, admin_view=False))
+
+
+def account_ctx(u, a, admin_view):
+    snaps = db.q("SELECT ts, equity FROM equity_snaps WHERE account_id=? ORDER BY ts", (a["id"],))
+    if len(snaps) > 400:
+        snaps = snaps[:: len(snaps) // 400 + 1]
+    return dict(user=u, a=a, rules=db.rules_of(a), plan=db.plan_of(a), admin_view=admin_view, snaps=snaps,
+                owner=db.q("SELECT * FROM users WHERE id=?", (a["user_id"],), one=True),
+                orders=db.q("SELECT * FROM orders WHERE account_id=? ORDER BY ts DESC LIMIT 12", (a["id"],)),
+                viol=db.q("SELECT * FROM violations WHERE account_id=? ORDER BY ts DESC LIMIT 5", (a["id"],)))
 
 
 @app.route("/api/account/<int:aid>/state")
@@ -300,6 +395,8 @@ def api_state(u, aid):
         out["last_error"] = str(e)
     out["metrics"] = engine.metrics(a, equity)
     out["within_hours"] = engine.within_hours(rules)
+    out["trades_today"] = db.q("SELECT COUNT(*) n FROM orders WHERE account_id=? AND day=? AND kind='entry' "
+                               "AND status='sent'", (aid, engine.today()), one=True)["n"]
     return jsonify(out)
 
 
@@ -408,27 +505,130 @@ def payouts(u):
 @app.route("/admin")
 @login_required(admin=True)
 def admin_home(u):
-    Q = lambda sql, *a: db.q(sql, a)
-    queues = {
-        "users": Q("SELECT * FROM users WHERE status='pending' AND is_admin=0 ORDER BY id"),
-        "payments": Q("SELECT a.*, u.username FROM accounts a JOIN users u ON u.id=a.user_id "
-                      "WHERE a.status='payment_review' ORDER BY a.id"),
-        "setup": Q("SELECT a.*, u.username FROM accounts a JOIN users u ON u.id=a.user_id "
-                   "WHERE a.status IN ('awaiting_setup','passed') ORDER BY a.id"),
-        "payouts": Q("SELECT p.*, u.username, u.upi_id FROM payouts p JOIN users u ON u.id=p.user_id "
-                     "WHERE p.status IN ('requested','approved') ORDER BY p.id"),
+    accs = db.q("SELECT a.*, u.username email, u.full_name, u.last_login FROM accounts a "
+                "JOIN users u ON u.id=a.user_id ORDER BY a.id DESC")
+    for a in accs:
+        a["m"] = engine.metrics(a) if a["starting_balance"] else None
+    live = [a for a in accs if a["status"] in ("active", "paused_day")]
+    tot = {
+        "capital": sum(a["m"]["starting_balance"] for a in accs if a["m"] and a["status"] not in ("closed",)),
+        "equity": sum(a["m"]["equity"] for a in accs if a["m"] and a["status"] not in ("closed",)),
+        "today": sum(a["m"]["daily_pnl"] for a in live if a["m"]),
+        "live": len(live), "failed": len([a for a in accs if a["status"] == "failed"]),
     }
-    stats = db.q("SELECT "
-                 "(SELECT COUNT(*) FROM users WHERE is_admin=0 AND status='approved') traders,"
-                 "(SELECT COUNT(*) FROM accounts WHERE status IN ('active','paused_day') AND phase!='funded') evals,"
-                 "(SELECT COUNT(*) FROM accounts WHERE phase='funded' AND status NOT IN ('failed','closed')) funded,"
-                 "(SELECT COUNT(*) FROM accounts WHERE status='failed') failed,"
-                 "(SELECT COALESCE(SUM(fee_inr),0) FROM accounts WHERE status NOT IN "
-                 "  ('pending_payment','payment_review')) fees,"
-                 "(SELECT COALESCE(SUM(trader_share_inr),0) FROM payouts WHERE status='paid') paid,"
-                 "(SELECT COALESCE(SUM(profit_usd - trader_share_usd),0) FROM payouts WHERE status='paid') kept",
-                 one=True)
-    return render_template("admin_home.html", user=u, q=queues, s=stats)
+    return render_template("admin_home.html", user=u, accounts=accs, tot=tot,
+                           dev_codes=list(mailer.dev_codes) if not mailer.email_enabled() else [])
+
+
+TRADER_RULES = [("daily_loss_pct", float), ("max_drawdown_pct", float), ("max_leverage", int),
+                ("max_risk_per_trade_pct", float), ("max_open_positions", int), ("max_trades_per_day", int),
+                ("max_contracts_per_order", int)]
+
+
+def trader_plan_from_form(f, old=None):
+    rules = dict((old or {}).get("rules") or config.DEFAULT_RULES)
+    for k, t in TRADER_RULES:
+        v = (f.get(k) or "").strip()
+        if v:
+            rules[k] = t(float(v))
+    rules.update(
+        drawdown_type="trailing" if f.get("drawdown_type") == "trailing" else "static",
+        daily_loss_action="pause" if f.get("daily_loss_action") == "pause" else "fail",
+        allowed_symbols=[x.strip().upper() for x in (f.get("allowed_symbols") or "BTCUSD,ETHUSD").split(",") if x.strip()],
+        require_stop_loss=bool(f.get("require_stop_loss")),
+        trading_hours=(f.get("trading_hours") or "").strip(), flatten_outside_hours=False)
+    capital_inr = float(f.get("capital_inr") or 0)
+    if capital_inr <= 0:
+        raise ValueError("Enter the capital in rupees")
+    return {"name": f"{rupees(capital_inr)} account", "capital_inr": capital_inr,
+            "account_size": round(capital_inr / config.USD_INR, 2), "fee_inr": 0, "phases": 0,
+            "p1_target_pct": 0, "p2_target_pct": 0, "min_trading_days": 0, "max_days": 0,
+            "profit_split_pct": float(f.get("profit_split_pct") or 0), "payout_interval_days": 14,
+            "min_payout_usd": 0, "consistency_pct": 0, "goal_pct": float(f.get("goal_pct") or 0), "rules": rules}
+
+
+def _plan_id():
+    p = db.q("SELECT id FROM plans WHERE name='Direct (admin)'", one=True)
+    if p:
+        return p["id"]
+    return db.x("INSERT INTO plans(name, account_size, phases, active, created_at) VALUES ('Direct (admin)', 0, 0, 0, ?)",
+                (time.time(),))
+
+
+@app.route("/admin/traders/new", methods=["GET", "POST"])
+@login_required(admin=True)
+def admin_trader_new(u):
+    f = request.form
+    if request.method == "POST":
+        email = (f.get("email") or "").strip().lower()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            flash("Enter a valid email", "error")
+            return render_template("trader_form.html", user=u, f=f, a=None, rules=config.DEFAULT_RULES)
+        try:
+            plan = trader_plan_from_form(f)
+        except ValueError as e:
+            flash(str(e) if "rupees" in str(e) else "Every number field must be a number", "error")
+            return render_template("trader_form.html", user=u, f=f, a=None, rules=config.DEFAULT_RULES)
+        t = db.q("SELECT * FROM users WHERE username=?", (email,), one=True)
+        if t and t["is_admin"]:
+            flash("That email belongs to the admin", "error")
+            return redirect(request.url)
+        if t:
+            uid = t["id"]
+            db.x("UPDATE users SET status='approved', full_name=COALESCE(NULLIF(?,''), full_name) WHERE id=?",
+                 (f.get("full_name", "").strip(), uid))
+        else:
+            uid = db.x("INSERT INTO users(username, email, full_name, phone, pw_hash, status, created_at) "
+                       "VALUES (?,?,?,?,?, 'approved', ?)",
+                       (email, email, f.get("full_name", "").strip(), f.get("phone", "").strip(),
+                        generate_password_hash(secrets.token_hex(16)), time.time()))
+        aid = db.x("INSERT INTO accounts(user_id, plan_id, plan_json, phase, status, api_key, api_secret, "
+                   "subaccount_label, created_at) VALUES (?,?,?, 'funded', 'awaiting_setup', ?,?,?,?)",
+                   (uid, _plan_id(), json.dumps(plan), f.get("api_key", "").strip(), f.get("api_secret", "").strip(),
+                    f.get("label", "").strip(), time.time()))
+        db.event(aid, "created", f"{plan['name']} for {email}")
+        try:
+            engine.start_phase(db.account(aid), "funded", bool(f.get("force")))
+            flash(f"{email} can log in now with an email code and trade {plan['name']}.", "ok")
+        except (LifecycleError, DeltaError) as e:
+            flash(f"Trader added, but trading isn't on yet: {e}", "error")
+        return redirect(url_for("admin_account", aid=aid))
+    return render_template("trader_form.html", user=u, f={}, a=None, rules=config.DEFAULT_RULES)
+
+
+@app.route("/admin/accounts/<int:aid>/edit", methods=["GET", "POST"])
+@login_required(admin=True)
+def admin_trader_edit(u, aid):
+    a = db.account(aid) or abort(404)
+    owner = db.q("SELECT * FROM users WHERE id=?", (a["user_id"],), one=True)
+    old = db.plan_of(a)
+    f = request.form
+    if request.method == "POST":
+        try:
+            plan = trader_plan_from_form(f, old)
+        except ValueError:
+            flash("Every number field must be a number", "error")
+            return redirect(request.url)
+        db.x("UPDATE accounts SET plan_json=?, subaccount_label=? WHERE id=?",
+             (json.dumps(plan), f.get("label", "").strip(), aid))
+        if f.get("api_key", "").strip():
+            db.x("UPDATE accounts SET api_key=? WHERE id=?", (f["api_key"].strip(), aid))
+        if f.get("api_secret", "").strip():
+            db.x("UPDATE accounts SET api_secret=? WHERE id=?", (f["api_secret"].strip(), aid))
+        db.x("UPDATE users SET full_name=?, phone=? WHERE id=?",
+             (f.get("full_name", "").strip(), f.get("phone", "").strip(), owner["id"]))
+        engine._clients.clear()
+        msg = "Saved."
+        if plan["account_size"] != old.get("account_size"):
+            msg += " New capital applies when you click Restart account."
+        db.event(aid, "rules_changed", "by admin")
+        flash(msg, "ok")
+        return redirect(url_for("admin_account", aid=aid))
+    fdata = {"email": owner["username"], "full_name": owner["full_name"], "phone": owner["phone"],
+             "capital_inr": old.get("capital_inr") or round(old["account_size"] * config.USD_INR),
+             "profit_split_pct": old.get("profit_split_pct"), "goal_pct": old.get("goal_pct"),
+             "label": a["subaccount_label"]}
+    return render_template("trader_form.html", user=u, f=fdata, a=a, rules=db.rules_of(a))
 
 
 @app.route("/admin/users")
@@ -533,7 +733,7 @@ def admin_accounts(u):
 @login_required(admin=True)
 def admin_account(u, aid):
     a = db.account(aid) or abort(404)
-    return render_template("admin_account.html", user=u, nxt=engine.next_phase(a), **build_report(a))
+    return render_template("account.html", **account_ctx(u, a, admin_view=True))
 
 
 @app.route("/admin/accounts/<int:aid>/action", methods=["POST"])
@@ -573,6 +773,16 @@ def admin_account_action(u, aid):
             nxt = engine.next_phase(a)
             engine.start_phase(a, nxt, force)
             flash(f"{engine.PHASE_LABEL[nxt]} started", "ok")
+        elif act == "restart":
+            engine.start_phase(db.account(aid), "funded", force)
+            flash("Account restarted with fresh limits.", "ok")
+        elif act == "block":
+            try:
+                engine.client_for(a).flatten()
+            except DeltaError:
+                pass
+            engine.set_status(a, "closed", f.get("note") or "Trading turned off by admin")
+            db.event(aid, "blocked", "by admin")
         elif act == "fail":
             engine.fail(a, "admin", f.get("note") or "Failed by admin")
         elif act == "close":
@@ -592,7 +802,7 @@ def admin_account_action(u, aid):
                 db.x(f"DELETE FROM {t} WHERE account_id=?", (aid,))
             db.x("DELETE FROM accounts WHERE id=?", (aid,))
             flash("Account deleted", "ok")
-            return redirect(url_for("admin_accounts"))
+            return redirect(url_for("admin_home"))
     except (LifecycleError, DeltaError) as e:
         flash(str(e), "error")
     return redirect(url_for("admin_account", aid=aid))

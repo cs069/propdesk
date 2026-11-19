@@ -1,57 +1,48 @@
-{% extends "base.html" %}{% import "_m.html" as M %}
-{% block title %}Admin · {{ FIRM }}{% endblock %}
+{% extends "base.html" %}
+{% block title %}Traders · {{ FIRM }}{% endblock %}
 {% block body %}
-<h1>Overview</h1>
-<div class="grid g4" style="margin-bottom:16px">
-  <div class="card stat"><div class="k">Traders</div><div class="v">{{ s.traders }}</div><div class="s">{{ q.users|length }} waiting approval</div></div>
-  <div class="card stat"><div class="k">In evaluation / funded</div><div class="v">{{ s.evals }} / {{ s.funded }}</div><div class="s">{{ s.failed }} failed so far</div></div>
-  <div class="card stat"><div class="k">Fees collected</div><div class="v">{{ s.fees|inr }}</div><div class="s">confirmed payments</div></div>
-  <div class="card stat"><div class="k">Paid to traders</div><div class="v">{{ s.paid|inr }}</div><div class="s">you kept {{ s.kept|money }} {{ ASSET }} of profit</div></div>
+{% set R = USD_INR %}
+<div class="top">
+  <div><h1>Traders</h1><div class="sub">{{ tot.live }} trading now{% if tot.failed %} · {{ tot.failed }} failed{% endif %}</div></div>
+  <a class="btn primary" href="{{ url_for('admin_trader_new') }}">Add trader</a>
 </div>
 
-<div class="grid g2">
-<div>
-  <div class="card queue" style="margin-bottom:16px">
-    <h2>1 · Approve registrations<span class="n">{{ q.users|length }}</span></h2>
-    <table><tbody>
-    {% for t in q.users %}<tr><td><b>{{ t.username }}</b> · {{ t.full_name }}<div class="small mute">{{ t.email }} · {{ t.phone }} · {{ t.upi_id }}</div></td>
-      <td>{{ M.btn('approve','Approve', url_for('admin_user_action', uid=t.id), 'small primary') }}{{ M.btn('disable','Reject', url_for('admin_user_action', uid=t.id)) }}</td></tr>
-    {% else %}<tr><td class="mute">Nothing waiting</td></tr>{% endfor %}
-    </tbody></table>
-  </div>
+<div class="strip" style="margin-bottom:18px">
+  <div class="stat"><div class="k">Capital given out</div><div class="v">{{ (tot.capital * R)|rs }}</div></div>
+  <div class="stat"><div class="k">Current equity</div><div class="v">{{ (tot.equity * R)|rs }}</div></div>
+  {% set pnl = tot.equity - tot.capital %}
+  <div class="stat"><div class="k">Total P&amp;L</div><div class="v {{ 'pos' if pnl > 0 else 'neg' if pnl < 0 }}">{{ (pnl * R)|rs_signed }}</div></div>
+  <div class="stat"><div class="k">Today</div><div class="v {{ 'pos' if tot.today > 0 else 'neg' if tot.today < 0 }}">{{ (tot.today * R)|rs_signed }}</div></div>
+</div>
 
-  <div class="card queue" style="margin-bottom:16px">
-    <h2>2 · Confirm fee payments<span class="n">{{ q.payments|length }}</span></h2>
-    <table><tbody>
-    {% for a in q.payments %}<tr><td><b>#{{ a.id }}</b> {{ a.username }} · {{ plan_of(a).name }}<div class="small mute">{{ a.fee_inr|inr }} · UTR <b>{{ a.payment_ref }}</b> — check your UPI app</div></td>
-      <td>{{ M.btn('confirm_payment','Received', url_for('admin_account_action', aid=a.id), 'small primary') }}
-          {{ M.btn('reject_payment','Not found', url_for('admin_account_action', aid=a.id)) }}</td></tr>
-    {% else %}<tr><td class="mute">Nothing waiting</td></tr>{% endfor %}
-    </tbody></table>
-  </div>
+{% if dev_codes %}
+<div class="card" style="margin-bottom:18px">
+  <h2>Login codes</h2>
+  <p class="small mute" style="margin-top:-6px">Email isn't set up, so codes show here. Send them to your friend on WhatsApp. Each code works for 10 minutes. Add SMTP settings to <code>.env</code> to email them automatically.</p>
+  <table><tbody>{% for c in dev_codes %}<tr><td>{{ c.email }}</td><td><b style="font-size:18px;letter-spacing:3px">{{ c.code }}</b></td><td class="mute small">{{ c.ts|dt }}</td></tr>{% endfor %}</tbody></table>
 </div>
-<div>
-  <div class="card queue" style="margin-bottom:16px">
-    <h2>3 · Set up / move to next phase<span class="n">{{ q.setup|length }}</span></h2>
-    <table><tbody>
-    {% for a in q.setup %}<tr><td><b>#{{ a.id }}</b> {{ a.username }} · {{ plan_of(a).name }}
-      <div class="small mute">{% if a.status == 'awaiting_setup' %}New {{ PHASE[a.phase] }} — needs sub-account + API key{% else %}{{ a.status_reason }}{% endif %}</div></td>
-      <td><a class="btn small primary" href="{{ url_for('admin_account', aid=a.id) }}">Open</a></td></tr>
-    {% else %}<tr><td class="mute">Nothing waiting</td></tr>{% endfor %}
-    </tbody></table>
-  </div>
+{% endif %}
 
-  <div class="card queue">
-    <h2>4 · Payouts<span class="n">{{ q.payouts|length }}</span></h2>
-    <table><tbody>
-    {% for p in q.payouts %}<tr><td><b>{{ p.username }}</b> · #{{ p.account_id }} · {{ p.trader_share_inr|inr }}
-      <div class="small mute">{{ p.status }} · UPI {{ p.upi_id }}</div></td>
-      <td><a class="btn small primary" href="{{ url_for('admin_payouts') }}">Handle</a></td></tr>
-    {% else %}<tr><td class="mute">Nothing waiting</td></tr>{% endfor %}
-    </tbody></table>
-  </div>
+<div class="card">
+  <div class="tablewrap"><table>
+    <thead><tr><th>Trader</th><th>Status</th><th class="num">Capital</th><th class="num">Equity</th><th class="num">P&amp;L</th><th class="num">Today</th><th class="num">Loss room left</th><th>Last login</th></tr></thead>
+    <tbody>
+    {% for a in accounts %}{% set m = a.m %}
+    <tr class="link" onclick="location='{{ url_for('admin_account', aid=a.id) }}'">
+      <td><a href="{{ url_for('admin_account', aid=a.id) }}"><b>{{ a.full_name or a.email }}</b></a><div class="small faint">{{ a.email }}</div></td>
+      <td><span class="pill {{ a.status }}" title="{{ a.status_reason }}">{{ STATUS.get(a.status, a.status) }}</span>{% if a.last_error %} <span class="neg small" title="{{ a.last_error }}">connection issue</span>{% endif %}</td>
+      {% if m %}
+      <td class="num">{{ (m.starting_balance * R)|rs }}</td>
+      <td class="num">{{ (m.equity * R)|rs }}</td>
+      <td class="num {{ 'pos' if m.total_pnl > 0 else 'neg' if m.total_pnl < 0 }}"><b>{{ "%+.2f"|format(m.total_pnl_pct) }}%</b></td>
+      <td class="num {{ 'pos' if m.daily_pnl > 0 else 'neg' if m.daily_pnl < 0 }}">{{ (m.daily_pnl * R)|rs_signed }}</td>
+      <td class="num">{{ ([m.dd_left, 0]|max * R)|rs }}</td>
+      {% else %}<td colspan="5" class="mute">Not started — open to finish setup</td>{% endif %}
+      <td class="small mute">{{ a.last_login|dt }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="8" class="empty">No traders yet. <a href="{{ url_for('admin_trader_new') }}">Add your first friend</a> with their email and the capital you're giving them.</td></tr>
+    {% endfor %}
+    </tbody></table></div>
 </div>
-</div>
-<p class="mute small" style="margin-top:16px">Exports: <a href="{{ url_for('export', what='accounts') }}">accounts</a> ·
-  <a href="{{ url_for('export', what='daily') }}">daily results</a> · <a href="{{ url_for('export', what='payouts') }}">payouts</a></p>
 {% endblock %}
