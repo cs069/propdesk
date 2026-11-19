@@ -1,0 +1,9 @@
+{% extends "base.html" %}{% import "_m.html" as M %}
+{% block title %}Report #{{ a.id }} · {{ FIRM }}{% endblock %}
+{% block body %}
+<h1>#{{ a.id }} · {{ plan.name }} {{ M.pill(a.status) }}
+  {% if a.status in ['active','paused_day'] %}<a class="small" href="{{ url_for('trade', aid=a.id) }}">trade →</a>{% endif %}</h1>
+{{ M.steps(a) }}
+{% if a.status_reason %}<div class="banner {{ '' if a.status in ['failed','closed'] else 'warn' }}">{{ a.status_reason }}</div>{% endif %}
+{% include "_report.html" %}
+{% endblock %}

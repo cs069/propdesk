@@ -1,0 +1,47 @@
+{% extends "base.html" %}{% import "_m.html" as M %}
+{% block title %}Plan · {{ FIRM }}{% endblock %}
+{% block body %}
+<h1>{{ 'New plan' if is_new else 'Edit ' ~ p.name }}</h1>
+<form method="post" class="grid g2">{{ M.csrf() }}
+  <div class="card">
+    <h2>Challenge</h2>
+    <div class="row"><div><label>Name</label><input name="name" value="{{ p.name }}" required></div>
+      <div><label>Account size ({{ ASSET }}) — what you fund the sub-account with</label><input name="account_size" type="number" step="any" value="{{ p.account_size }}"></div></div>
+    <div class="row"><div><label>Fee (₹, 0 = free)</label><input name="fee_inr" type="number" step="any" value="{{ p.fee_inr }}"></div>
+      <div><label>Steps</label><select name="phases">
+        {% for v, l in [(2,'2-step: Phase 1 → Phase 2 → Funded'),(1,'1-step: Phase 1 → Funded'),(0,'Instant funded')] %}
+        <option value="{{ v }}" {{ 'selected' if p.phases == v }}>{{ l }}</option>{% endfor %}</select></div></div>
+    <div class="row"><div><label>Phase 1 target %</label><input name="p1_target_pct" type="number" step="any" value="{{ p.p1_target_pct }}"></div>
+      <div><label>Phase 2 target %</label><input name="p2_target_pct" type="number" step="any" value="{{ p.p2_target_pct }}"></div></div>
+    <div class="row"><div><label>Min trading days (per phase & per payout)</label><input name="min_trading_days" type="number" value="{{ p.min_trading_days }}"></div>
+      <div><label>Time limit per phase (days, 0 = none)</label><input name="max_days" type="number" value="{{ p.max_days }}"></div></div>
+    <h2 style="margin-top:16px">Funded & payouts</h2>
+    <div class="row"><div><label>Profit split to trader %</label><input name="profit_split_pct" type="number" step="any" value="{{ p.profit_split_pct }}"></div>
+      <div><label>Payout every (days)</label><input name="payout_interval_days" type="number" value="{{ p.payout_interval_days }}"></div></div>
+    <div class="row"><div><label>Min payout ({{ ASSET }} profit)</label><input name="min_payout_usd" type="number" step="any" value="{{ p.min_payout_usd }}"></div>
+      <div><label>Consistency: best day ≤ % of profit (0 = off)</label><input name="consistency_pct" type="number" step="any" value="{{ p.consistency_pct }}"></div></div>
+    <label><input type="checkbox" name="active" style="width:auto" {{ 'checked' if p.active }}> Visible to traders</label>
+  </div>
+  <div class="card">
+    <h2>Risk rules</h2>
+    <div class="row"><div><label>Daily loss %</label><input name="daily_loss_pct" type="number" step="any" value="{{ rules.daily_loss_pct }}"></div>
+      <div><label>On daily loss</label><select name="daily_loss_action">
+        <option value="fail" {{ 'selected' if rules.daily_loss_action=='fail' }}>Fail account</option>
+        <option value="pause" {{ 'selected' if rules.daily_loss_action=='pause' }}>Pause till midnight</option></select></div></div>
+    <div class="row"><div><label>Max drawdown %</label><input name="max_drawdown_pct" type="number" step="any" value="{{ rules.max_drawdown_pct }}"></div>
+      <div><label>Drawdown type</label><select name="drawdown_type">
+        <option value="static" {{ 'selected' if rules.drawdown_type=='static' }}>Static (from start)</option>
+        <option value="trailing" {{ 'selected' if rules.drawdown_type=='trailing' }}>Trailing (from peak)</option></select></div></div>
+    <div class="row"><div><label>Max leverage</label><input name="max_leverage" type="number" value="{{ rules.max_leverage }}"></div>
+      <div><label>Max risk per trade %</label><input name="max_risk_per_trade_pct" type="number" step="any" value="{{ rules.max_risk_per_trade_pct }}"></div></div>
+    <div class="row"><div><label>Max open positions</label><input name="max_open_positions" type="number" value="{{ rules.max_open_positions }}"></div>
+      <div><label>Max contracts / order</label><input name="max_contracts_per_order" type="number" value="{{ rules.max_contracts_per_order }}"></div>
+      <div><label>Max trades / day</label><input name="max_trades_per_day" type="number" value="{{ rules.max_trades_per_day }}"></div></div>
+    <label>Allowed symbols</label><input name="allowed_symbols" value="{{ rules.allowed_symbols|join(', ') }}">
+    <label>Trading hours IST (e.g. 09:00-23:00, empty = 24/7)</label><input name="trading_hours" value="{{ rules.trading_hours }}">
+    <label><input type="checkbox" name="require_stop_loss" style="width:auto" {{ 'checked' if rules.require_stop_loss }}> Stop-loss required</label>
+    <label><input type="checkbox" name="flatten_outside_hours" style="width:auto" {{ 'checked' if rules.flatten_outside_hours }}> Close positions outside hours</label>
+    <p><button class="primary">Save plan</button></p>
+  </div>
+</form>
+{% endblock %}

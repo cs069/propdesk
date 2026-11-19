@@ -1,0 +1,87 @@
+{% import "_m.html" as M %}
+{% if m %}
+<div class="grid g4" style="margin-bottom:16px">
+  <div class="card stat"><div class="k">Equity</div><div class="v">{{ m.equity|money }}</div>
+    <div class="s">start {{ m.starting_balance|money }} · peak {{ m.peak_equity|money }}</div></div>
+  <div class="card stat"><div class="k">P&L this phase</div><div class="v {{ 'pos' if m.total_pnl>0 else 'neg' if m.total_pnl<0 }}">{{ m.total_pnl|money }}</div>
+    <div class="s">{{ m.total_pnl_pct|pct }}{% if m.target_equity %} · target {{ m.target_pct }}% ({{ "%.0f"|format([m.target_progress_pct,0]|max) }}% done){% endif %}</div></div>
+  <div class="card stat"><div class="k">Drawdown</div><div class="v">{{ "%.2f"|format(m.drawdown_pct) }}%</div>
+    <div class="s">limit {{ rules.max_drawdown_pct }}% {{ rules.drawdown_type }} · room {{ m.dd_left|money }}</div></div>
+  <div class="card stat"><div class="k">Trading days</div><div class="v">{{ m.trading_days }} / {{ m.min_trading_days }}</div>
+    <div class="s">{{ summary.entries }} trades · {{ summary.rejected }} blocked · {{ viol|length }} violations</div></div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <h2>Equity curve</h2>
+  <svg class="chart" id="chart" viewBox="0 0 1000 220" preserveAspectRatio="none"></svg>
+  <div class="mute small" id="chartnote"></div>
+</div>
+
+<div class="grid g4" style="margin-bottom:16px">
+  <div class="card stat"><div class="k">Green / red days</div><div class="v">{{ summary.green }} / {{ summary.red }}</div>
+    <div class="s">{% if summary.green_pct is not none %}{{ "%.0f"|format(summary.green_pct) }}% green{% endif %}</div></div>
+  <div class="card stat"><div class="k">Best day</div><div class="v pos">{{ summary.best|money }}</div><div class="s">worst <span class="neg">{{ summary.worst|money }}</span></div></div>
+  <div class="card stat"><div class="k">Avg green day</div><div class="v pos">{{ summary.avg_green|money }}</div><div class="s">avg red <span class="neg">{{ summary.avg_red|money }}</span></div></div>
+  <div class="card stat"><div class="k">Paid out</div><div class="v pos">{{ payouts|selectattr('status','equalto','paid')|sum(attribute='trader_share_inr')|inr }}</div>
+    <div class="s">{{ payouts|selectattr('status','equalto','paid')|list|length }} payouts</div></div>
+</div>
+{% endif %}
+
+<div class="grid g2" style="margin-bottom:16px">
+  <div class="card">
+    <h2>Daily results</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Day</th><th>Phase</th><th class="num">Start</th><th class="num">End</th><th class="num">P&L</th><th class="num">Trades</th><th class="num">Viol.</th></tr></thead>
+      <tbody>
+      {% for d in days %}<tr><td>{{ d.day }}</td><td>{{ PHASE.get(d.phase, '') }}</td><td class="num">{{ d.start_equity|money }}</td><td class="num">{{ d.end_equity|money }}</td>
+        <td class="num {{ 'pos' if d.pnl>0 else 'neg' if d.pnl<0 }}">{{ d.pnl|money }}</td><td class="num">{{ d.trades }}</td><td class="num">{{ d.violations if d.violations is not none else '—' }}</td></tr>
+      {% else %}<tr><td colspan="7" class="mute">No days yet</td></tr>{% endfor %}
+      </tbody></table></div>
+  </div>
+  <div class="card">
+    <h2>Timeline</h2>
+    <div class="tablewrap"><table><tbody>
+    {% for e in events %}<tr><td class="small mute">{{ e.ts|dt }}</td><td><b>{{ e.event|replace('_',' ') }}</b><div class="small mute" style="white-space:normal">{{ e.detail }}</div></td></tr>
+    {% else %}<tr><td class="mute">—</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <h2>Rule violations</h2>
+  <div class="tablewrap"><table><thead><tr><th>Time (IST)</th><th>Rule</th><th>Detail</th><th>Action</th></tr></thead><tbody>
+  {% for v in viol %}<tr><td>{{ v.ts|dt }}</td><td>{{ v.rule }}</td><td style="white-space:normal">{{ v.detail }}</td><td>{{ v.action }}</td></tr>
+  {% else %}<tr><td colspan="4" class="mute">None — clean record</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+
+<div class="card">
+  <h2>Order log (last 200)</h2>
+  <div class="tablewrap"><table><thead><tr><th>Time (IST)</th><th>Phase</th><th>Type</th><th>Symbol</th><th>Side</th><th class="num">Size</th><th class="num">Lev</th><th class="num">SL</th><th class="num">TP</th><th>Status</th><th>Message</th></tr></thead><tbody>
+  {% for o in orders %}<tr><td>{{ o.ts|dt }}</td><td>{{ PHASE.get(o.phase,'') }}</td><td>{{ o.kind }}</td><td>{{ o.symbol or '' }}</td>
+    <td class="{{ 'pos' if o.side=='buy' else 'neg' if o.side=='sell' }}">{{ o.side or '' }}</td>
+    <td class="num">{{ o.size or '' }}</td><td class="num">{{ o.leverage or '' }}</td><td class="num">{{ o.stop_loss or '' }}</td><td class="num">{{ o.take_profit or '' }}</td>
+    <td>{{ o.status }}</td><td class="small mute" style="white-space:normal">{{ o.message or '' }}</td></tr>
+  {% else %}<tr><td colspan="11" class="mute">No orders yet</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+
+{% if m %}
+<script>
+(function(){
+  const snaps = {{ snaps|tojson }}, start = {{ m.starting_balance }}, floor = {{ m.dd_floor }}, target = {{ m.target_equity or 'null' }};
+  const svg = document.getElementById("chart");
+  if (snaps.length < 2){ document.getElementById("chartnote").textContent = "The chart fills in after a few minutes of trading."; return; }
+  const ys = snaps.map(s=>s.equity).concat([start, floor].concat(target?[target]:[]));
+  const lo = Math.min(...ys), hi = Math.max(...ys), pad = (hi-lo)*0.08 || 1;
+  const t0 = snaps[0].ts, t1 = snaps[snaps.length-1].ts;
+  const X = t => (t-t0)/(t1-t0||1)*1000, Y = v => 220 - (v-(lo-pad))/((hi+pad)-(lo-pad))*220;
+  const line = (v,c,l) => `<line x1="0" x2="1000" y1="${Y(v)}" y2="${Y(v)}" stroke="${c}" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"/>`+
+     `<text x="6" y="${Y(v)-4}" fill="${c}" font-size="11">${l} ${v.toFixed(2)}</text>`;
+  const pts = snaps.map(s=>`${X(s.ts).toFixed(1)},${Y(s.equity).toFixed(1)}`).join(" ");
+  svg.innerHTML = line(start,"#8b949e","start") + line(floor,"#f25c54","fail floor") + (target?line(target,"#2fbf71","target"):"") +
+    `<polyline points="${pts}" fill="none" stroke="#4c8dff" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+  document.getElementById("chartnote").textContent = `${new Date(t0*1000).toLocaleString()} → ${new Date(t1*1000).toLocaleString()}`;
+})();
+</script>
+{% endif %}

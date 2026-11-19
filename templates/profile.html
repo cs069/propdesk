@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Profile · {{ FIRM }}{% endblock %}
+{% block body %}
+<h1>Profile</h1>
+<div class="grid g2">
+  <form method="post" class="card">{{ '' }}
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="profile">
+    <h2>Details</h2>
+    <label>Username</label><input value="{{ user.username }}" disabled>
+    <label>Email</label><input value="{{ user.email }}" disabled>
+    <label>Full name</label><input name="full_name" value="{{ user.full_name }}">
+    <label>Phone</label><input name="phone" value="{{ user.phone }}">
+    <label>UPI ID for payouts</label><input name="upi_id" value="{{ user.upi_id }}">
+    <p><button class="primary">Save</button></p>
+  </form>
+  <form method="post" class="card">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="action" value="password">
+    <h2>Change password</h2>
+    <label>Current password</label><input name="old" type="password">
+    <label>New password (8+ characters)</label><input name="new" type="password">
+    <p><button>Change password</button></p>
+  </form>
+</div>
+{% endblock %}

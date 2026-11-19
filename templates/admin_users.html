@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% import "_m.html" as M %}
+{% block title %}Users · {{ FIRM }}{% endblock %}
+{% block body %}
+<h1>Users</h1>
+<div class="card"><div class="tablewrap"><table>
+  <thead><tr><th>Username</th><th>Name</th><th>Email</th><th>Phone</th><th>UPI</th><th>Joined</th><th class="num">Accounts</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {% for t in users %}{% set url = url_for('admin_user_action', uid=t.id) %}
+  <tr><td><b>{{ t.username }}</b></td><td>{{ t.full_name }}</td><td>{{ t.email }}</td><td>{{ t.phone }}</td><td>{{ t.upi_id }}</td>
+    <td>{{ t.created_at|dt }}</td><td class="num">{{ t.n_acc }}</td><td>{{ M.pill(t.status) }}</td>
+    <td>{% if t.status == 'pending' %}{{ M.btn('approve','Approve', url, 'small primary') }}{% endif %}
+        {% if t.status == 'disabled' %}{{ M.btn('enable','Enable', url) }}{% else %}{{ M.btn('disable','Disable', url) }}{% endif %}
+        {{ M.btn('reset_password','Reset password', url) }}</td></tr>
+  {% else %}<tr><td colspan="9" class="mute">No users yet — share your site link so friends can register.</td></tr>{% endfor %}
+  </tbody></table></div></div>
+{% endblock %}

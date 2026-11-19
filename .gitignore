@@ -1,0 +1,19 @@
+# secrets & local data — never commit
+.env
+*.db
+*.db-journal
+*.db.bak
+paper_state.json
+paper_state.json.tmp
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# os / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

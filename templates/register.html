@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Register · {{ FIRM }}{% endblock %}
+{% block body %}
+<div class="card" style="max-width:520px;margin:4vh auto">
+  <h1>Create your trader account</h1>
+  <form method="post">
+    <div class="row">
+      <div><label>Username</label><input name="username" value="{{ f.get('username','') }}" required></div>
+      <div><label>Full name</label><input name="full_name" value="{{ f.get('full_name','') }}" required></div>
+    </div>
+    <div class="row">
+      <div><label>Email</label><input name="email" type="email" value="{{ f.get('email','') }}" required></div>
+      <div><label>Phone</label><input name="phone" value="{{ f.get('phone','') }}" required></div>
+    </div>
+    <label>UPI ID (your payouts are sent here)</label><input name="upi_id" placeholder="name@okaxis" value="{{ f.get('upi_id','') }}" required>
+    <div class="row">
+      <div><label>Password</label><input name="password" type="password" required></div>
+      <div><label>Confirm password</label><input name="password2" type="password" required></div>
+    </div>
+    {% if invite %}<label>Invite code (optional — skips approval)</label><input name="invite" value="{{ f.get('invite','') }}">{% endif %}
+    <label><input type="checkbox" name="agree" style="width:auto"> I understand this is a private trading group: I trade the firm's capital
+      under its rules, a rule break ends the account, and payouts are a share of profits only.</label>
+    <p><button class="primary" style="width:100%">Register</button></p>
+  </form>
+  <p class="mute small">Already registered? <a href="{{ url_for('login') }}">Sign in</a></p>
+</div>
+{% endblock %}

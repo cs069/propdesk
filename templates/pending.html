@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card login" style="max-width:460px">
+  <h1>Waiting for approval</h1>
+  <p>Thanks for registering, {{ user.full_name or user.username }}. The admin will approve your account soon —
+     reload this page later.</p>
+  <p class="mute small">Meanwhile you can check your <a href="{{ url_for('profile') }}">profile and UPI ID</a>.</p>
+</div>
+{% endblock %}

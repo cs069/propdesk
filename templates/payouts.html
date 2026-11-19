@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% import "_m.html" as M %}
+{% block title %}Payouts · {{ FIRM }}{% endblock %}
+{% block body %}
+<h1>My payouts</h1>
+<div class="card"><div class="tablewrap"><table>
+  <thead><tr><th>#</th><th>Account</th><th>Requested</th><th class="num">Profit ({{ ASSET }})</th><th class="num">Split</th><th class="num">You get</th><th>Status</th><th>UTR</th><th>Paid</th><th>Note</th></tr></thead>
+  <tbody>
+  {% for p in payouts %}<tr><td>{{ p.id }}</td><td><a href="{{ url_for('report', aid=p.account_id) }}">#{{ p.account_id }} {{ plan_of(p).name }}</a></td>
+    <td>{{ p.requested_at|dt }}</td><td class="num">{{ p.profit_usd|money }}</td><td class="num">{{ p.split_pct }}%</td>
+    <td class="num pos">{{ p.trader_share_inr|inr }}</td><td>{{ M.pill(p.status) }}</td><td>{{ p.utr }}</td><td>{{ p.paid_at|dt }}</td><td class="small mute">{{ p.admin_note }}</td></tr>
+  {% else %}<tr><td colspan="10" class="mute">No payouts yet — get funded first.</td></tr>{% endfor %}
+  </tbody></table></div></div>
+{% endblock %}

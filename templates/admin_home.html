@@ -1,0 +1,57 @@
+{% extends "base.html" %}{% import "_m.html" as M %}
+{% block title %}Admin · {{ FIRM }}{% endblock %}
+{% block body %}
+<h1>Overview</h1>
+<div class="grid g4" style="margin-bottom:16px">
+  <div class="card stat"><div class="k">Traders</div><div class="v">{{ s.traders }}</div><div class="s">{{ q.users|length }} waiting approval</div></div>
+  <div class="card stat"><div class="k">In evaluation / funded</div><div class="v">{{ s.evals }} / {{ s.funded }}</div><div class="s">{{ s.failed }} failed so far</div></div>
+  <div class="card stat"><div class="k">Fees collected</div><div class="v">{{ s.fees|inr }}</div><div class="s">confirmed payments</div></div>
+  <div class="card stat"><div class="k">Paid to traders</div><div class="v">{{ s.paid|inr }}</div><div class="s">you kept {{ s.kept|money }} {{ ASSET }} of profit</div></div>
+</div>
+
+<div class="grid g2">
+<div>
+  <div class="card queue" style="margin-bottom:16px">
+    <h2>1 · Approve registrations<span class="n">{{ q.users|length }}</span></h2>
+    <table><tbody>
+    {% for t in q.users %}<tr><td><b>{{ t.username }}</b> · {{ t.full_name }}<div class="small mute">{{ t.email }} · {{ t.phone }} · {{ t.upi_id }}</div></td>
+      <td>{{ M.btn('approve','Approve', url_for('admin_user_action', uid=t.id), 'small primary') }}{{ M.btn('disable','Reject', url_for('admin_user_action', uid=t.id)) }}</td></tr>
+    {% else %}<tr><td class="mute">Nothing waiting</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+
+  <div class="card queue" style="margin-bottom:16px">
+    <h2>2 · Confirm fee payments<span class="n">{{ q.payments|length }}</span></h2>
+    <table><tbody>
+    {% for a in q.payments %}<tr><td><b>#{{ a.id }}</b> {{ a.username }} · {{ plan_of(a).name }}<div class="small mute">{{ a.fee_inr|inr }} · UTR <b>{{ a.payment_ref }}</b> — check your UPI app</div></td>
+      <td>{{ M.btn('confirm_payment','Received', url_for('admin_account_action', aid=a.id), 'small primary') }}
+          {{ M.btn('reject_payment','Not found', url_for('admin_account_action', aid=a.id)) }}</td></tr>
+    {% else %}<tr><td class="mute">Nothing waiting</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+<div>
+  <div class="card queue" style="margin-bottom:16px">
+    <h2>3 · Set up / move to next phase<span class="n">{{ q.setup|length }}</span></h2>
+    <table><tbody>
+    {% for a in q.setup %}<tr><td><b>#{{ a.id }}</b> {{ a.username }} · {{ plan_of(a).name }}
+      <div class="small mute">{% if a.status == 'awaiting_setup' %}New {{ PHASE[a.phase] }} — needs sub-account + API key{% else %}{{ a.status_reason }}{% endif %}</div></td>
+      <td><a class="btn small primary" href="{{ url_for('admin_account', aid=a.id) }}">Open</a></td></tr>
+    {% else %}<tr><td class="mute">Nothing waiting</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+
+  <div class="card queue">
+    <h2>4 · Payouts<span class="n">{{ q.payouts|length }}</span></h2>
+    <table><tbody>
+    {% for p in q.payouts %}<tr><td><b>{{ p.username }}</b> · #{{ p.account_id }} · {{ p.trader_share_inr|inr }}
+      <div class="small mute">{{ p.status }} · UPI {{ p.upi_id }}</div></td>
+      <td><a class="btn small primary" href="{{ url_for('admin_payouts') }}">Handle</a></td></tr>
+    {% else %}<tr><td class="mute">Nothing waiting</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+</div>
+<p class="mute small" style="margin-top:16px">Exports: <a href="{{ url_for('export', what='accounts') }}">accounts</a> ·
+  <a href="{{ url_for('export', what='daily') }}">daily results</a> · <a href="{{ url_for('export', what='payouts') }}">payouts</a></p>
+{% endblock %}

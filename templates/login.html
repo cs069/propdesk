@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card login">
+  <h1>Sign in to {{ FIRM }}</h1>
+  <form method="post">
+    <label>Username</label><input name="username" autofocus autocomplete="username">
+    <label>Password</label><input name="password" type="password" autocomplete="current-password">
+    <p><button class="primary" style="width:100%">Sign in</button></p>
+  </form>
+  {% if reg_open %}<p class="mute small">New here? <a href="{{ url_for('register') }}">Create an account</a></p>{% endif %}
+</div>
+{% endblock %}

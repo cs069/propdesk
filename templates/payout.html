@@ -1,0 +1,25 @@
+{% extends "base.html" %}{% import "_m.html" as M %}
+{% block title %}Payout · {{ FIRM }}{% endblock %}
+{% block body %}
+<div class="card" style="max-width:620px;margin:2vh auto">
+  <h1>Request payout — #{{ a.id }} {{ plan.name }}</h1>
+  {% if info %}
+  <dl class="kv">
+    <dt>Profit on account</dt><dd>{{ info.profit|money }} {{ ASSET }}</dd>
+    <dt>Your split</dt><dd>{{ info.split }}%</dd>
+    <dt>You receive</dt><dd><b class="pos">{{ info.share_inr|inr }}</b> ({{ info.share_usd|money }} {{ ASSET }} × ₹{{ USD_INR }})</dd>
+    <dt>Paid to UPI</dt><dd>{{ user.upi_id or 'not set — add it in your profile' }}</dd>
+    {% if info.best_day_share is defined %}<dt>Consistency</dt><dd>best day = {{ "%.0f"|format(info.best_day_share) }}% of profit (max {{ plan.consistency_pct }}%)</dd>{% endif %}
+    <dt>Window</dt><dd>every {{ plan.payout_interval_days }} days · next opens {{ m.next_payout_at|dt }}</dd>
+  </dl>
+  {% endif %}
+  {% if ok %}
+    <p class="mute small">When you request, trading on this account pauses until the payout is paid. After payment the
+      account restarts from {{ m.starting_balance|money }} {{ ASSET }}.</p>
+    <form method="post">{{ M.csrf() }}<button class="primary">Request {{ info.share_inr|inr }}</button></form>
+  {% else %}
+    <h2 style="margin-top:16px">Not eligible yet</h2>
+    <ul>{% for w in why %}<li>{{ w }}</li>{% endfor %}</ul>
+  {% endif %}
+</div>
+{% endblock %}

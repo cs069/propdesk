@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% import "_m.html" as M %}
+{% block title %}Pay · {{ FIRM }}{% endblock %}
+{% block body %}
+<div class="card" style="max-width:520px;margin:2vh auto">
+  <h1>Pay challenge fee — {{ a.fee_inr|inr }}</h1>
+  {% if a.status_reason %}<div class="banner warn">{{ a.status_reason }}</div>{% endif %}
+  {% if a.status == 'pending_payment' %}
+  <ol>
+    <li>Pay <b>{{ a.fee_inr|inr }}</b> to UPI ID <b>{{ upi_id }}</b> with note <b>{{ note }}</b>.<br>
+      <a class="btn primary small" href="{{ upi }}" style="margin-top:6px">Open UPI app</a> <span class="mute small">(works on phone)</span></li>
+    <li style="margin-top:10px">Paste the UPI transaction ID / UTR below.</li>
+  </ol>
+  <form method="post">{{ M.csrf() }}
+    <label>UTR / transaction ID</label><input name="utr" required>
+    <p><button class="primary">I've paid</button></p>
+  </form>
+  {% else %}
+  <p>Status: {{ M.pill(a.status) }}</p><p><a href="{{ url_for('dashboard') }}">Back to dashboard</a></p>
+  {% endif %}
+</div>
+{% endblock %}

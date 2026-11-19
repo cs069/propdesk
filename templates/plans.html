@@ -1,0 +1,19 @@
+{% extends "base.html" %}{% import "_m.html" as M %}
+{% block title %}Challenges · {{ FIRM }}{% endblock %}
+{% block body %}
+<h1>Choose a challenge</h1>
+<p class="mute">Pass the evaluation, get funded, keep a share of the profit. Break a rule and the account ends — no other cost to you.</p>
+<div class="plans">
+{% for p in plans %}
+  <div class="card plan">
+    <div class="mute small">{{ p.name }}</div>
+    <div class="size">{{ p.account_size|money }} {{ ASSET }}</div>
+    <div class="mute small">≈ {{ (p.account_size * USD_INR)|inr }} trading capital</div>
+    {{ M.plan_summary(p, p.rules) }}
+    <form method="post" action="{{ url_for('start_plan', pid=p.id) }}">{{ M.csrf() }}
+      <button class="primary" style="width:100%">{{ 'Start for ' ~ (p.fee_inr|inr) if p.fee_inr else 'Start free' }}</button>
+    </form>
+  </div>
+{% else %}<p class="mute">No plans available right now.</p>{% endfor %}
+</div>
+{% endblock %}

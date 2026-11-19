@@ -1,0 +1,49 @@
+{% extends "base.html" %}{% import "_m.html" as M %}
+{% block title %}Dashboard · {{ FIRM }}{% endblock %}
+{% block body %}
+<h1>Hi {{ user.full_name or user.username }}</h1>
+<div class="grid g4" style="margin-bottom:16px">
+  <div class="card stat"><div class="k">Accounts</div><div class="v">{{ accounts|length }}</div>
+    <div class="s">{{ accounts|selectattr('phase','equalto','funded')|rejectattr('status','in',['failed','closed'])|list|length }} funded</div></div>
+  <div class="card stat"><div class="k">Total paid to you</div><div class="v pos">{{ paid_total|inr }}</div>
+    <div class="s">{{ payouts|selectattr('status','equalto','paid')|list|length }} payouts</div></div>
+  <div class="card stat"><div class="k">Payout UPI</div><div class="v" style="font-size:16px">{{ user.upi_id or '—' }}</div>
+    <div class="s"><a href="{{ url_for('profile') }}">change</a></div></div>
+  <div class="card stat"><div class="k">Start something</div><div class="v" style="font-size:16px"><a href="{{ url_for('plans') }}">New challenge →</a></div></div>
+</div>
+
+{% for a in accounts %}{% set plan = plan_of(a) %}
+<div class="card" style="margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <div><b>#{{ a.id }} · {{ plan.name }}</b> &nbsp;{{ M.pill(a.status) }}</div>
+    <div>
+      {% if a.status == 'pending_payment' %}<a class="btn primary small" href="{{ url_for('pay', aid=a.id) }}">Pay {{ a.fee_inr|inr }}</a>{% endif %}
+      {% if a.status in ['active','paused_day','passed','payout_pending','failed','closed'] and a.starting_balance %}
+        {% if a.status in ['active','paused_day'] %}<a class="btn primary small" href="{{ url_for('trade', aid=a.id) }}">Trade</a>{% endif %}
+        <a class="btn small" href="{{ url_for('report', aid=a.id) }}">Report</a>
+        {% if a.phase == 'funded' and a.status == 'active' %}<a class="btn small" href="{{ url_for('payout', aid=a.id) }}">Payout</a>{% endif %}
+      {% endif %}
+    </div>
+  </div>
+  {{ M.steps(a) }}
+  {% if a.status_reason %}<div class="mute small">{{ a.status_reason }}</div>{% endif %}
+  {% if a.status == 'awaiting_setup' %}<div class="mute small">Your account is being set up — you'll be able to trade soon.</div>{% endif %}
+  {% if a.status == 'payment_review' %}<div class="mute small">Payment ref {{ a.payment_ref }} is being checked.</div>{% endif %}
+  {% if a.m %}{% set m = a.m %}
+  <div class="grid g4" style="margin-top:10px">
+    <div class="stat"><div class="k">Equity</div><div class="v" style="font-size:18px">{{ m.equity|money }}</div><div class="s">of {{ m.starting_balance|money }} {{ ASSET }}</div></div>
+    <div class="stat"><div class="k">P&L</div><div class="v {{ 'pos' if m.total_pnl>0 else 'neg' if m.total_pnl<0 }}" style="font-size:18px">{{ m.total_pnl_pct|pct }}</div><div class="s">today {{ m.daily_pnl|money }}</div></div>
+    {% if m.target_equity %}
+    <div class="stat"><div class="k">Target {{ m.target_pct }}%</div><div class="v" style="font-size:18px">{{ "%.0f"|format([m.target_progress_pct,0]|max) }}%</div><div class="bar"><i style="width:{{ [[m.target_progress_pct,0]|max,100]|min }}%"></i></div></div>
+    {% else %}
+    <div class="stat"><div class="k">Your share ({{ m.profit_split_pct }}%)</div><div class="v pos" style="font-size:18px">{{ (m.trader_share_usd * USD_INR)|inr }}</div><div class="s">next payout {{ m.next_payout_at|dt }}</div></div>
+    {% endif %}
+    <div class="stat"><div class="k">Trading days</div><div class="v" style="font-size:18px">{{ m.trading_days }} / {{ m.min_trading_days }}</div>
+      <div class="s">{% if m.days_left is not none %}{{ "%.0f"|format([m.days_left,0]|max) }} days left{% else %}drawdown room {{ m.dd_left|money }}{% endif %}</div></div>
+  </div>
+  {% endif %}
+</div>
+{% else %}
+<div class="card"><p>No accounts yet.</p><a class="btn primary" href="{{ url_for('plans') }}">Choose your first challenge</a></div>
+{% endfor %}
+{% endblock %}

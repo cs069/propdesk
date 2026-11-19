@@ -1,0 +1,74 @@
+{% extends "base.html" %}{% import "_m.html" as M %}
+{% block title %}Account #{{ a.id }} · {{ FIRM }}{% endblock %}
+{% block body %}
+{% set url = url_for('admin_account_action', aid=a.id) %}
+{% set force = '<label class="inline small mute"><input type="checkbox" name="force"> force</label>' %}
+<h1>#{{ a.id }} · {{ owner.username }} · {{ plan.name }} {{ M.pill(a.status) }}</h1>
+{{ M.steps(a) }}
+{% if a.status_reason %}<div class="banner {{ '' if a.status in ['failed','closed'] else 'warn' }}">{{ a.status_reason }}</div>{% endif %}
+
+<div class="grid g2" style="margin-bottom:16px">
+  <div class="card">
+    <h2>What to do now</h2>
+    {% if a.status == 'pending_payment' %}
+      <p>Waiting for {{ owner.username }} to pay {{ a.fee_inr|inr }}.</p>
+    {% elif a.status == 'payment_review' %}
+      <p>Check your UPI app for <b>{{ a.fee_inr|inr }}</b> with UTR <b>{{ a.payment_ref }}</b>.</p>
+      {{ M.btn('confirm_payment','Payment received', url, 'small primary') }}
+      {{ M.btn('reject_payment','Not found', url, 'small', '<input name="note" placeholder="reason" style="width:160px">') }}
+    {% elif a.status == 'awaiting_setup' %}
+      <ol>
+        {% if MODE == 'paper' %}<li>Paper mode: no Delta setup needed — just click Start.</li>{% else %}
+        <li>On Delta: Profile → Sub-Accounts → create one (e.g. <b>pd-{{ a.id }}-{{ owner.username }}</b>).</li>
+        <li>Transfer exactly <b>{{ plan.account_size|money }} {{ ASSET }}</b> into it.</li>
+        <li>On that sub-account create an API key with <b>Read + Trading only</b>, whitelist your server IP.</li>
+        <li>Paste the key below, Save (it tests the connection).</li>{% endif %}
+        <li>Click <b>Start {{ PHASE[a.phase] }}</b>.</li>
+      </ol>
+      {{ M.btn('activate','Start ' ~ PHASE[a.phase], url, 'small primary', force) }}
+    {% elif a.status == 'passed' %}
+      <ol>
+        <li>Positions were closed automatically.</li>
+        {% if MODE != 'paper' %}<li>On Delta, transfer funds so the sub-account holds exactly <b>{{ plan.account_size|money }} {{ ASSET }}</b>
+          (current equity {{ a.last_equity|money }} → move {{ ((a.last_equity or plan.account_size) - plan.account_size)|money }} back to main).</li>{% endif %}
+        <li>Click <b>Start {{ PHASE[nxt] }}</b>.</li>
+      </ol>
+      {{ M.btn('next_phase','Start ' ~ PHASE[nxt], url, 'small primary', force) }}
+    {% elif a.status == 'payout_pending' %}
+      <p>Payout requested — handle it on <a href="{{ url_for('admin_payouts') }}">Payouts</a>.</p>
+    {% elif a.status in ['active','paused_day'] %}
+      <p>Trading. The risk watcher handles limits, targets and failures automatically.</p>
+    {% else %}
+      <p>This account is finished. The trader can start a new challenge.</p>
+    {% endif %}
+    <h2 style="margin-top:16px">Trader</h2>
+    <dl class="kv"><dt>Name</dt><dd>{{ owner.full_name }}</dd><dt>Contact</dt><dd>{{ owner.email }} · {{ owner.phone }}</dd>
+      <dt>UPI</dt><dd>{{ owner.upi_id }}</dd><dt>Created</dt><dd>{{ a.created_at|dt }}</dd>
+      {% if a.funded_at %}<dt>Funded</dt><dd>{{ a.funded_at|dt }}</dd>{% endif %}</dl>
+  </div>
+
+  <div class="card">
+    <h2>Delta sub-account</h2>
+    <form method="post" action="{{ url }}">{{ M.csrf() }}
+      <label>Label (your note)</label><input name="label" value="{{ a.subaccount_label }}" placeholder="pd-{{ a.id }}-{{ owner.username }}">
+      <label>API key {% if a.api_key %}<span class="mute">(set …{{ a.api_key[-4:] }})</span>{% endif %}</label><input name="api_key" autocomplete="off">
+      <label>API secret {% if a.api_secret %}<span class="mute">(set)</span>{% endif %}</label><input name="api_secret" type="password" autocomplete="off">
+      <p><button class="small" name="action" value="save_keys">Save & test connection</button></p>
+    </form>
+    {% if a.last_error %}<p class="neg small">Last error: {{ a.last_error }}</p>{% endif %}
+    <h2 style="margin-top:16px">Actions</h2>
+    {% if a.status in ['active','paused_day','passed','payout_pending'] %}{{ M.btn('flatten','Close all positions', url) }}{% endif %}
+    {% if a.status == 'paused_day' %}{{ M.btn('reactivate','Unpause now', url) }}{% endif %}
+    {% if a.status not in ['failed','closed'] %}
+      {{ M.btn('fail','Fail account', url, 'small sell', '<input name="note" placeholder="reason" style="width:140px">') }}
+      {{ M.btn('close','Close (no fault)', url) }}
+    {% else %}
+      {{ M.btn('reactivate','Reactivate', url) }}
+    {% endif %}
+    {{ M.btn('delete','Delete + history', url, 'small', '<label class="inline small mute"><input type="checkbox" required> sure</label>') }}
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px"><h2>Plan & rules (fixed at purchase)</h2>{{ M.plan_summary(plan, rules) }}</div>
+{% include "_report.html" %}
+{% endblock %}

@@ -1,0 +1,23 @@
+{% extends "base.html" %}{% import "_m.html" as M %}
+{% block title %}Accounts · {{ FIRM }}{% endblock %}
+{% block body %}
+<h1>Accounts — leaderboard</h1>
+<p>{% for k, l in [('live','Trading now'),('funded','Funded'),('failed','Failed / closed'),('all','All')] %}
+  <a class="btn small {{ 'primary' if f==k }}" href="{{ url_for('admin_accounts', f=k) }}">{{ l }}</a>{% endfor %}</p>
+<div class="card"><div class="tablewrap"><table>
+  <thead><tr><th>#</th><th>Trader</th><th>Plan</th><th>Phase</th><th>Status</th><th class="num">Equity</th><th class="num">P&L</th><th class="num">Today</th>
+    <th class="num">DD</th><th class="num">Target</th><th class="num">Days</th><th>Checked</th></tr></thead>
+  <tbody>
+  {% for a in accounts %}{% set m = a.m %}
+  <tr><td><a href="{{ url_for('admin_account', aid=a.id) }}">#{{ a.id }}</a></td><td>{{ a.username }}</td><td>{{ plan_of(a).name }}</td>
+    <td>{{ PHASE[a.phase] }}</td><td>{{ M.pill(a.status) }}</td>
+    {% if m %}
+    <td class="num">{{ m.equity|money }}</td><td class="num {{ 'pos' if m.total_pnl>0 else 'neg' if m.total_pnl<0 }}">{{ m.total_pnl_pct|pct }}</td>
+    <td class="num {{ 'pos' if m.daily_pnl>0 else 'neg' if m.daily_pnl<0 }}">{{ m.daily_pnl|money }}</td><td class="num">{{ "%.1f"|format(m.drawdown_pct) }}%</td>
+    <td class="num">{% if m.target_progress_pct is not none %}{{ "%.0f"|format([m.target_progress_pct,0]|max) }}%{% else %}—{% endif %}</td>
+    <td class="num">{{ m.trading_days }}/{{ m.min_trading_days }}</td>
+    {% else %}<td colspan="6" class="mute">not started</td>{% endif %}
+    <td class="small {{ 'neg' if a.last_error }}" title="{{ a.last_error }}">{{ a.last_check|dt }}{% if a.last_error %} ⚠{% endif %}</td></tr>
+  {% else %}<tr><td colspan="12" class="mute">No accounts here</td></tr>{% endfor %}
+  </tbody></table></div></div>
+{% endblock %}

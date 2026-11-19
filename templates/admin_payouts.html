@@ -1,0 +1,42 @@
+{% extends "base.html" %}{% import "_m.html" as M %}
+{% block title %}Payouts · {{ FIRM }}{% endblock %}
+{% block body %}
+<h1>Payouts</h1>
+{% for p in payouts if p.status in ['requested','approved'] %}
+{% set url = url_for('admin_payout_action', pid=p.id) %}
+<div class="card" style="margin-bottom:14px">
+  <h2 style="color:var(--text)">#{{ p.id }} · {{ p.username }} ({{ p.full_name }}) · account #{{ p.account_id }} {{ M.pill(p.status) }}</h2>
+  <dl class="kv">
+    <dt>Profit</dt><dd>{{ p.profit_usd|money }} {{ ASSET }} · split {{ p.split_pct }}%</dd>
+    <dt>Pay trader</dt><dd><b class="pos">{{ p.trader_share_inr|inr }}</b> ({{ p.trader_share_usd|money }} {{ ASSET }} × ₹{{ p.usd_inr }}) to UPI <b>{{ p.upi_id }}</b></dd>
+    <dt>Requested</dt><dd>{{ p.requested_at|dt }} · <a href="{{ url_for('admin_account', aid=p.account_id) }}">review account</a></dd>
+  </dl>
+  {% if p.status == 'requested' %}
+    <p class="mute small">Check the report (no rule abuse, real trading), then approve.</p>
+    {{ M.btn('approve','Approve', url, 'small primary') }}
+    {{ M.btn('reject','Reject', url, 'small', '<input name="note" placeholder="reason (trader sees this)" style="width:220px">') }}
+  {% else %}
+    <ol class="small">
+      {% if MODE != 'paper' %}<li>On Delta, transfer the profit <b>{{ p.profit_usd|money }} {{ ASSET }}</b> from sub-account
+        <b>{{ p.subaccount_label or ('#' ~ p.account_id) }}</b> to your main account (it should go back to {{ p.starting_balance|money }}).</li>{% endif %}
+      <li>Send <b>{{ p.trader_share_inr|inr }}</b> to <b>{{ p.upi_id }}</b> by UPI.</li>
+      <li>Enter the UTR and mark paid — the account starts trading again.</li>
+    </ol>
+    <form method="post" action="{{ url }}" class="inline">{{ M.csrf() }}
+      <input name="utr" placeholder="UPI UTR" required style="width:200px">
+      <label class="inline small mute"><input type="checkbox" name="force"> force</label>
+      <button class="small primary" name="action" value="paid">Mark paid</button></form>
+    {{ M.btn('reject','Reject', url, 'small', '<input name="note" placeholder="reason" style="width:160px">') }}
+  {% endif %}
+</div>
+{% endfor %}
+
+<div class="card"><h2>History</h2><div class="tablewrap"><table>
+  <thead><tr><th>#</th><th>Trader</th><th>Account</th><th>Requested</th><th class="num">Profit</th><th class="num">Trader got</th><th class="num">You kept ({{ ASSET }})</th><th>Status</th><th>UTR</th><th>Paid</th></tr></thead>
+  <tbody>
+  {% for p in payouts %}<tr><td>{{ p.id }}</td><td>{{ p.username }}</td><td><a href="{{ url_for('admin_account', aid=p.account_id) }}">#{{ p.account_id }}</a></td>
+    <td>{{ p.requested_at|dt }}</td><td class="num">{{ p.profit_usd|money }}</td><td class="num">{{ p.trader_share_inr|inr }}</td>
+    <td class="num">{{ (p.profit_usd - p.trader_share_usd)|money }}</td><td>{{ M.pill(p.status) }}</td><td>{{ p.utr }}</td><td>{{ p.paid_at|dt }}</td></tr>
+  {% else %}<tr><td colspan="10" class="mute">No payouts yet</td></tr>{% endfor %}
+  </tbody></table></div></div>
+{% endblock %}

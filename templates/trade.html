@@ -1,0 +1,145 @@
+{% extends "base.html" %}{% import "_m.html" as M %}
+{% block title %}Trade #{{ a.id }} · {{ FIRM }}{% endblock %}
+{% block body %}
+<h1>#{{ a.id }} · {{ plan.name }} <span class="pill phase">{{ PHASE[a.phase] }}</span>
+  <a class="small" href="{{ url_for('report', aid=a.id) }}">report →</a></h1>
+{{ M.steps(a) }}
+<div id="banner"></div>
+<div class="grid g4" style="margin-bottom:16px">
+  <div class="card stat"><div class="k">Equity ({{ ASSET }})</div><div class="v" id="equity">—</div><div class="s" id="totalpnl"></div></div>
+  <div class="card stat"><div class="k">Today's P&L</div><div class="v" id="daypnl">—</div>
+    <div class="s" id="dayleft"></div><div class="bar" id="daybar"><i></i></div></div>
+  <div class="card stat"><div class="k">Drawdown room left</div><div class="v" id="ddleft">—</div>
+    <div class="s" id="ddfloor"></div><div class="bar" id="ddbar"><i></i></div></div>
+  <div class="card stat"><div class="k" id="targetk">Profit target</div><div class="v" id="target">—</div>
+    <div class="s" id="targets"></div><div class="bar" id="tbar"><i></i></div></div>
+</div>
+
+<div class="grid g2">
+  <div>
+    <div class="card" style="margin-bottom:16px">
+      <h2>Open positions <span class="mute small" id="updated"></span></h2>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Symbol</th><th class="num">Size</th><th class="num">Entry</th><th class="num">Mark</th>
+          <th class="num">Unrealized P&L</th><th></th></tr></thead>
+        <tbody id="positions"><tr><td colspan="6" class="mute">Loading…</td></tr></tbody>
+      </table></div>
+      <p><button class="small" onclick="closePos('__all__')">Close everything</button></p>
+    </div>
+    <div class="card">
+      <h2>Your rules</h2>
+      {{ M.plan_summary(plan, rules) }}
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>New order</h2>
+    <form id="ticket" onsubmit="return false">
+      <label>Symbol</label>
+      <select name="symbol" id="symbol">{% for s in rules.allowed_symbols %}<option>{{ s }}</option>{% endfor %}</select>
+      <div class="mute small" id="mark" style="margin-top:4px"></div>
+      <div class="row">
+        <div><label>Order type</label><select name="order_type" id="otype"><option value="market">Market</option><option value="limit">Limit</option></select></div>
+        <div><label>Leverage (max {{ rules.max_leverage }})</label><input name="leverage" id="lev" type="number" min="1" max="{{ rules.max_leverage }}" value="{{ [5, rules.max_leverage]|min }}"></div>
+      </div>
+      <div id="limitrow" style="display:none"><label>Limit price</label><input name="limit_price" id="limit" type="number" step="any"></div>
+      <label>Size (contracts)</label><input name="size" id="size" type="number" min="1" step="1" value="1">
+      <div class="row">
+        <div><label>Stop-loss{% if rules.require_stop_loss %} *{% endif %}</label><input name="stop_loss" id="sl" type="number" step="any"></div>
+        <div><label>Take-profit</label><input name="take_profit" id="tp" type="number" step="any"></div>
+      </div>
+      <div class="mute small" id="preview" style="margin-top:10px"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="buy" onclick="send('buy')">Buy / Long</button>
+        <button class="sell" onclick="send('sell')">Sell / Short</button>
+      </div>
+      <div class="msg" id="msg"></div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const RISK_PCT = {{ rules.max_risk_per_trade_pct }};
+let S = null;
+const $ = id => document.getElementById(id);
+const fmt = v => v == null ? "—" : Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const cls = v => v > 0 ? "pos" : v < 0 ? "neg" : "";
+function setBar(id, frac, danger){ const b=$(id); b.querySelector("i").style.width=Math.max(0,Math.min(100,frac*100))+"%";
+  b.className="bar"+(danger? (frac>0.75?" danger":frac>0.5?" warn":"") : ""); }
+
+async function refresh(){
+  try{
+    const r = await fetch("{{ url_for('api_state', aid=a.id) }}"); S = await r.json();
+  }catch(e){ return; }
+  const m = S.metrics;
+  $("equity").textContent = fmt(m.equity);
+  $("totalpnl").innerHTML = `<span class="${cls(m.total_pnl)}">${fmt(m.total_pnl)} (${m.total_pnl_pct.toFixed(2)}%)</span> since start`;
+  $("daypnl").innerHTML = `<span class="${cls(m.daily_pnl)}">${fmt(m.daily_pnl)}</span>`;
+  $("dayleft").textContent = `${fmt(m.daily_loss_left)} left of ${fmt(m.daily_loss_limit)} daily limit`;
+  setBar("daybar", 1 - m.daily_loss_left / m.daily_loss_limit, true);
+  $("ddleft").textContent = fmt(m.dd_left);
+  $("ddfloor").textContent = `account fails if equity ≤ ${fmt(m.dd_floor)}`;
+  setBar("ddbar", 1 - m.dd_left / (m.starting_balance * {{ rules.max_drawdown_pct }} / 100), true);
+  if (m.target_equity){ $("target").textContent = Math.max(0,m.target_progress_pct).toFixed(0)+"%";
+    $("targets").textContent = `reach ${fmt(m.target_equity)} · trading days ${m.trading_days}/${m.min_trading_days}` +
+      (m.days_left!=null ? ` · ${Math.max(0,m.days_left).toFixed(0)} days left` : ""); setBar("tbar", m.target_progress_pct/100, false); }
+  else { $("targetk").textContent = `Your profit share (${m.profit_split_pct}%)`;
+    $("target").innerHTML = `<span class="pos">₹${Math.round(m.trader_share_usd*{{ USD_INR }}).toLocaleString()}</span>`;
+    $("targets").textContent = `${fmt(m.trader_share_usd)} {{ ASSET }} · next payout ${new Date(m.next_payout_at*1000).toLocaleDateString()}`;
+    setBar("tbar", 0, false); }
+
+  let ban = "";
+  if (S.status === "failed" || S.status === "closed") ban = `<div class="banner">Account ${S.status}: ${S.reason}</div>`;
+  else if (S.status !== "active") ban = `<div class="banner warn">${S.status_label}: ${S.reason}</div>`;
+  else if (!S.within_hours) ban = `<div class="banner warn">Outside trading hours.</div>`;
+  if (S.last_error) ban += `<div class="banner warn">Connection issue: ${S.last_error}</div>`;
+  $("banner").innerHTML = ban;
+  document.querySelectorAll("button.buy,button.sell").forEach(b => b.disabled = S.status !== "active");
+
+  const rows = S.positions.map(p => `<tr><td>${p.symbol}</td>
+    <td class="num ${p.size>0?'pos':'neg'}">${p.size>0?'+':''}${p.size}</td><td class="num">${fmt(p.entry_price)}</td>
+    <td class="num">${fmt(p.mark_price)}</td><td class="num ${cls(p.unrealized_pnl)}">${fmt(p.unrealized_pnl)}</td>
+    <td><button class="small" onclick="closePos('${p.symbol}')">Close</button></td></tr>`).join("");
+  $("positions").innerHTML = rows || `<tr><td colspan="6" class="mute">No open positions</td></tr>`;
+  $("updated").textContent = "· updated " + new Date().toLocaleTimeString();
+  preview();
+}
+
+function preview(){
+  if (!S) return;
+  const sym = $("symbol").value, px = S.prices[sym], cv = S.contract_values[sym];
+  $("mark").textContent = px ? `Mark price ${fmt(px)} · 1 contract = ${cv} ${sym.replace("USD","")}` : "";
+  const entry = $("otype").value === "limit" ? parseFloat($("limit").value) : px;
+  const size = parseInt($("size").value||0), sl = parseFloat($("sl").value), lev = parseInt($("lev").value||1);
+  if (!entry || !size) { $("preview").textContent=""; return; }
+  const notional = size * cv * entry, margin = notional / lev;
+  let t = `Position value ${fmt(notional)} · margin ≈ ${fmt(margin)}`;
+  if (sl) { const risk = size*cv*Math.abs(entry-sl), max = S.metrics.starting_balance*RISK_PCT/100;
+    t += ` · <b class="${risk>max?'neg':''}">risk at stop ${fmt(risk)}</b> (max ${fmt(max)})`; }
+  $("preview").innerHTML = t;
+}
+["symbol","otype","limit","size","sl","lev"].forEach(id => $(id).addEventListener("input", preview));
+$("otype").addEventListener("change", () => $("limitrow").style.display = $("otype").value==="limit" ? "" : "none");
+
+async function post(url, data){
+  data.append("csrf", CSRF);
+  const r = await fetch(url, {method:"POST", body:data}); return r.json();
+}
+async function send(side){
+  const fd = new FormData($("ticket")); fd.append("side", side);
+  $("msg").className = "msg"; $("msg").textContent = "Sending…";
+  const j = await post("{{ url_for('order', aid=a.id) }}", fd);
+  $("msg").className = "msg " + (j.ok ? "ok" : "err"); $("msg").textContent = j.message;
+  setTimeout(refresh, 800);
+}
+async function closePos(sym){
+  const fd = new FormData(); fd.append("symbol", sym);
+  const j = await post("{{ url_for('close', aid=a.id) }}", fd);
+  $("msg").className = "msg " + (j.ok ? "ok" : "err"); $("msg").textContent = j.message;
+  setTimeout(refresh, 800);
+}
+refresh(); setInterval(refresh, 3000);
+</script>
+{% endblock %}
