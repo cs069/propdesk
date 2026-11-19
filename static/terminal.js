@@ -27,7 +27,7 @@ function tvChart(el) {
     crosshair: { mode: 0 }, autoSize: true,
     localization: { timeFormatter: t => new Date(t * 1000).toLocaleString([], { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) },
   });
-  const c = chart.addCandlestickSeries({ upColor: "#2ED3A3", downColor: "#FF6B6B", borderVisible: false, wickUpColor: "#2ED3A3", wickDownColor: "#FF6B6B" });
+  const c = chart.addCandlestickSeries({ upColor: "#16C784", downColor: "#EA3943", borderVisible: false, wickUpColor: "#16C784", wickDownColor: "#EA3943" });
   const v = chart.addHistogramSeries({ priceScaleId: "", priceFormat: { type: "volume" } });
   v.priceScale().applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
   chart.subscribeCrosshairMove(p => showOhlc(p && p.seriesData && p.seriesData.get(c)));
@@ -47,37 +47,81 @@ function canvasChart(el) {
     for (let i = 0; i <= 5; i++) { const p = lo - pad + (hi - lo + 2 * pad) * i / 5, y = Y(p);
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cw, y); ctx.stroke(); ctx.fillText(num(p, dp()), cw + 6, y + 4); }
     const vmax = Math.max(...vols.slice(-n).map(x => x.value), 1);
-    d.forEach((k, i) => { const x = i * bw + bw / 2, up = k.close >= k.open; ctx.fillStyle = ctx.strokeStyle = up ? "#2ED3A3" : "#FF6B6B";
+    d.forEach((k, i) => { const x = i * bw + bw / 2, up = k.close >= k.open; ctx.fillStyle = ctx.strokeStyle = up ? "#16C784" : "#EA3943";
       const vv = (vols[vols.length - d.length + i] || {}).value || 0; ctx.globalAlpha = .28; ctx.fillRect(x - bw * .35, H - vv / vmax * H * .14, bw * .7, vv / vmax * H * .14);
       ctx.globalAlpha = 1; ctx.beginPath(); ctx.moveTo(x, Y(k.high)); ctx.lineTo(x, Y(k.low)); ctx.stroke();
       const y1 = Y(Math.max(k.open, k.close)), y2 = Y(Math.min(k.open, k.close)); ctx.fillRect(x - bw * .35, y1, bw * .7, Math.max(1, y2 - y1)); });
     pl.forEach(p => { const y = Y(p.price); if (y < 0 || y > ph) return; ctx.strokeStyle = ctx.fillStyle = p.color; ctx.setLineDash(p.lineStyle === 0 ? [] : [5, 4]);
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cw, y); ctx.stroke(); ctx.setLineDash([]);
-      ctx.fillRect(cw, y - 8, axis, 16); ctx.fillStyle = "#0B1120"; ctx.fillText(num(p.price, dp()), cw + 6, y + 4);
+      ctx.fillRect(cw, y - 8, axis, 16); ctx.fillStyle = "#FFFFFF"; ctx.fillText(num(p.price, dp()), cw + 6, y + 4);
       if (p.title) { const w = ctx.measureText(p.title).width + 12; ctx.fillStyle = p.color; ctx.fillRect(cw - w - 6, y - 9, w, 18); ctx.fillStyle = "#0B1120"; ctx.fillText(p.title, cw - w, y + 4); } });
-    const last = d[d.length - 1], y = Y(last.close); ctx.fillStyle = last.close >= last.open ? "#2ED3A3" : "#FF6B6B";
+    const last = d[d.length - 1], y = Y(last.close); ctx.fillStyle = last.close >= last.open ? "#16C784" : "#EA3943";
     ctx.fillRect(cw, y - 8, axis, 16); ctx.fillStyle = "#0B1120"; ctx.fillText(num(last.close, dp()), cw + 6, y + 4);
     cv.onmousemove = e => showOhlc(d[Math.floor(e.offsetX / bw)]);
   }
   new ResizeObserver(draw).observe(el);
   return { candles: { setData: x => { data = x.slice(); draw(); }, update: k => { if (data.length && data[data.length - 1].time === k.time) data[data.length - 1] = k; else data.push(k); draw(); },
       createPriceLine: o => { pl.push(o); draw(); return o; }, removePriceLine: o => { pl = pl.filter(x => x !== o); draw(); } },
-    vol: { setData: x => { vols = x; draw(); } }, fit: () => {} };
+    vol: { setData: x => { vols = x; draw(); }, update: v => { if (vols.length && vols[vols.length - 1].time === v.time) vols[vols.length - 1] = v; else vols.push(v); } }, fit: () => {} };
 }
 function showOhlc(d) { $("ohlc").textContent = d ? `O ${num(d.open, dp())}   H ${num(d.high, dp())}   L ${num(d.low, dp())}   C ${num(d.close, dp())}` : ""; }
 const CH = window.LightweightCharts ? tvChart($("chart")) : canvasChart($("chart"));
-if (!window.LightweightCharts) document.querySelector(".credit").textContent = "Prices from Delta Exchange";
 const candles = CH.candles, vol = CH.vol;
+const UPV = "rgba(22,199,132,.35)", DNV = "rgba(234,57,67,.35)";
 let lastCandle = null;
 
 async function getJSON(url) { const r = await fetch(url); if (r.redirected || r.status === 302) location.reload(); return r.json(); }
 
-async function loadCandles(fit) {
+/* Candles come from Binance USD-M futures (same coin, perpetual): REST for history, WebSocket for the live candle.
+   If the browser can't reach Binance, the server fetches it; if that fails too, Delta's own candles are used. */
+const binSym = () => SYM.toUpperCase().replace(/USD$/, "USDT");
+let SRC = "binance", ws = null, wsKey = "";
+const toCandle = k => ({ time: Math.floor(k[0] / 1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] });
+async function fetchCandles() {
+  try {
+    const r = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${binSym()}&interval=${RES}&limit=500`);
+    const rows = await r.json();
+    if (Array.isArray(rows) && rows.length) return { src: "binance", data: rows.map(toCandle) };
+  } catch (e) { /* blocked or offline: try the server */ }
+  try {
+    const j = await getJSON(U.mkt(SYM, "bcandles", "?res=" + RES));
+    if (j.ok && j.data && j.data.length) return { src: "binance", data: j.data };
+  } catch (e) {}
   const j = await getJSON(U.mkt(SYM, "candles", "?res=" + RES));
-  if (!j.ok || !j.data) { marketError(j.error); return; }
-  candles.setData(j.data.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
-  vol.setData(j.data.map(c => ({ time: c.time, value: c.volume, color: c.close >= c.open ? "rgba(46,211,163,.32)" : "rgba(255,107,107,.32)" })));
-  lastCandle = j.data[j.data.length - 1] || null;
+  return j.ok && j.data ? { src: "delta", data: j.data } : { src: "none", error: j.error };
+}
+function setCandles(data) {
+  candles.setData(data.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
+  vol.setData(data.map(c => ({ time: c.time, value: c.volume, color: c.close >= c.open ? UPV : DNV })));
+  lastCandle = data[data.length - 1] || null;
+}
+function liveCandle(c) {
+  lastCandle = c;
+  candles.update({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close });
+  if (vol.update) vol.update({ time: c.time, value: c.volume, color: c.close >= c.open ? UPV : DNV });
+}
+function connectWS() {
+  const key = binSym().toLowerCase() + "@kline_" + RES;
+  if (ws && wsKey === key && ws.readyState <= 1) return;
+  if (ws) { ws.onclose = null; ws.close(); }
+  wsKey = key;
+  try { ws = new WebSocket("wss://fstream.binance.com/market/ws/" + key); } catch (e) { return; }
+  ws.onmessage = ev => { const m = JSON.parse(ev.data), k = m.k; if (!k || m.s !== binSym()) return;
+    liveCandle({ time: Math.floor(k.t / 1000), open: +k.o, high: +k.h, low: +k.l, close: +k.c, volume: +k.v }); };
+  ws.onclose = () => { if (wsKey === key) setTimeout(connectWS, 3000); };
+}
+function setSource(src) {
+  SRC = src;
+  const credit = document.querySelector(".credit");
+  const lib = window.LightweightCharts ? ' · drawn with <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView Lightweight Charts</a>' : "";
+  credit.innerHTML = (src === "binance" ? `Chart: Binance futures ${binSym()}` : src === "delta" ? `Chart: Delta Exchange ${SYM}` : "Chart unavailable") +
+    ` · orders execute on Delta Exchange${lib}`;
+}
+async function loadCandles(fit) {
+  const r = await fetchCandles();
+  if (r.src === "none") { marketError(r.error); return; }
+  setCandles(r.data); setSource(r.src);
+  if (r.src === "binance") connectWS(); else if (ws) { ws.onclose = null; ws.close(); ws = null; }
   if (fit) CH.fit();
 }
 function drawLines() {
@@ -86,18 +130,18 @@ function drawLines() {
   const add = (price, color, title, style = 2) => price && lines.push(candles.createPriceLine({ price: +price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title }));
   S.positions.filter(p => p.symbol === SYM).forEach(p => {
     add(p.entry_price, "#8B7CF6", `${p.size > 0 ? "Long" : "Short"} ${Math.abs(p.size)}`, 0);
-    if (p.liquidation_price) add(p.liquidation_price, "#F5B94A", "Liquidation");
+    if (p.liquidation_price) add(p.liquidation_price, "#EA3943", "Liquidation");
   });
   ORD.filter(o => o.symbol === SYM).forEach(o => {
     const t = o.type || "";
-    if (t.includes("stop_loss")) add(o.stop, "#FF6B6B", "Stop-loss");
-    else if (t.includes("take_profit")) add(o.stop, "#2ED3A3", "Take-profit");
+    if (t.includes("stop_loss")) add(o.stop, "#EA3943", "Stop-loss");
+    else if (t.includes("take_profit")) add(o.stop, "#16C784", "Take-profit");
     else if (o.limit) add(o.limit, "#8C98B6", `${o.side === "buy" ? "Buy" : "Sell"} ${o.size}`);
   });
 }
 function drawDraft(price) {
   if (draftLine) { candles.removePriceLine(draftLine); draftLine = null; }
-  if (price && price > 0) draftLine = candles.createPriceLine({ price, color: "#F5B94A", lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: "Daily limit hit" });
+  if (price && price > 0) draftLine = candles.createPriceLine({ price, color: "#EA3943", lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: "Daily limit hit" });
 }
 
 /* ---------- market data ---------- */
@@ -115,7 +159,7 @@ async function loadTicker() {
   $("b-last").textContent = num(T.last, dp()); $("b-last").className = cls(T.change_pct);
   document.title = `${num(T.last, dp())} ${SYM} · ${FIRM}`;
   if (!priceTouched) $("price").value = (side === "buy" ? (T.best_bid || T.last) : (T.best_ask || T.last)) || "";
-  if (lastCandle && T.last) {
+  if (SRC === "delta" && lastCandle && T.last) {
     lastCandle.close = T.last; lastCandle.high = Math.max(lastCandle.high, T.last); lastCandle.low = Math.min(lastCandle.low, T.last);
     candles.update({ time: lastCandle.time, open: lastCandle.open, high: lastCandle.high, low: lastCandle.low, close: lastCandle.close });
   }
@@ -341,5 +385,5 @@ async function otherPrices() {
 loadCandles(true); loadTicker(); loadBook(); loadState(); loadOrders(); loadHistory(); loadMovers(); tick(); otherPrices();
 setInterval(loadTicker, 2000); setInterval(loadBook, 1500); setInterval(loadTrades, 2500); setInterval(tick, 1000);
 setInterval(loadState, 3000); setInterval(loadOrders, 5000); setInterval(loadHistory, 15000); setInterval(loadMovers, 20000);
-setInterval(otherPrices, 6000); setInterval(() => loadCandles(false), 30000);
+setInterval(otherPrices, 6000); setInterval(() => { if (SRC !== "binance" || !ws || ws.readyState !== 1) loadCandles(false); }, 30000);
 } };

@@ -3,6 +3,8 @@ so several traders watching the same market don't hit Delta's rate limits."""
 import threading
 import time
 
+import requests
+
 import config
 from delta_client import DeltaClient, DeltaError
 
@@ -101,3 +103,28 @@ def movers(limit=14):
                         "turnover": _f(t.get("turnover_usd") or t.get("turnover"), 0)})
         return sorted(out, key=lambda r: r["turnover"], reverse=True)[:limit]
     return _cached(("movers",), 15, get)
+
+
+BINANCE_FAPI = "https://fapi.binance.com/fapi/v1/klines"
+
+
+def binance_symbol(delta_symbol):
+    """Delta perpetual -> Binance USD-M perpetual: BTCUSD -> BTCUSDT."""
+    s = delta_symbol.upper()
+    return s + "T" if s.endswith("USD") else s
+
+
+def binance_candles(symbol, res="15m", limit=500):
+    """Server-side copy of Binance futures candles (used if the browser can't reach Binance directly)."""
+    def get():
+        r = requests.get(BINANCE_FAPI, params={"symbol": binance_symbol(symbol), "interval": res, "limit": limit},
+                         timeout=10, headers={"User-Agent": "propdesk"})
+        rows = r.json()
+        if not isinstance(rows, list):
+            raise DeltaError(f"Binance: {rows}")
+        return [{"time": int(k[0] // 1000), "open": float(k[1]), "high": float(k[2]), "low": float(k[3]),
+                 "close": float(k[4]), "volume": float(k[5])} for k in rows]
+    try:
+        return _cached(("bc", symbol, res), 4, get)
+    except (requests.RequestException, ValueError) as e:
+        raise DeltaError(f"Binance: {e}")

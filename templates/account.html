@@ -273,7 +273,7 @@ async function closePos(s) {
   const t0 = snaps[0].ts, t1 = snaps[snaps.length - 1].ts;
   const X = t => (t - t0) / (t1 - t0 || 1) * 1000, Y = v => 230 - (v - (lo - pad)) / ((hi + pad) - (lo - pad)) * 230;
   const pts = snaps.map(s => `${X(s.ts).toFixed(1)},${Y(s.equity).toFixed(1)}`);
-  const up = ys[ys.length - 1] >= ys[0], c = up ? "#2ED3A3" : "#FF6B6B";
+  const up = ys[ys.length - 1] >= ys[0], c = up ? "#16C784" : "#EA3943";
   svg.innerHTML = `<defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${c}" stop-opacity=".28"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></linearGradient></defs>
     <polygon points="0,230 ${pts.join(" ")} 1000,230" fill="url(#fill)"/>
     <polyline points="${pts.join(" ")}" fill="none" stroke="${c}" stroke-width="2.2" vector-effect="non-scaling-stroke"/>`;

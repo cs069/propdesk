@@ -138,7 +138,7 @@ tickClock(); setInterval(tickClock, 1000);
   const t0 = snaps[0].ts, t1 = snaps[snaps.length - 1].ts;
   const X = t => (t - t0) / (t1 - t0 || 1) * 1000, Y = v => 230 - (v - (lo - pad)) / ((hi + pad) - (lo - pad)) * 230;
   const pts = snaps.map(s => `${X(s.ts).toFixed(1)},${Y(s.equity).toFixed(1)}`).join(" ");
-  const c = ys[ys.length - 1] >= ys[0] ? "#2ED3A3" : "#FF6B6B";
+  const c = ys[ys.length - 1] >= ys[0] ? "#16C784" : "#EA3943";
   svg.innerHTML = `<defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${c}" stop-opacity=".25"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></linearGradient></defs>
     <polygon points="0,230 ${pts} 1000,230" fill="url(#g)"/><polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
 })();

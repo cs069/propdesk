@@ -441,7 +441,8 @@ def api_market(u, symbol, kind):
         abort(404)
     fn = {"ticker": lambda: market.ticker(symbol), "book": lambda: market.orderbook(symbol, 15),
           "trades": lambda: market.trades(symbol),
-          "candles": lambda: market.candles(symbol, request.args.get("res", "5m"))}.get(kind) or abort(404)
+          "candles": lambda: market.candles(symbol, request.args.get("res", "5m")),
+          "bcandles": lambda: market.binance_candles(symbol, request.args.get("res", "15m"))}.get(kind) or abort(404)
     data, err = market.safe(fn)
     return jsonify(ok=err is None, data=data, error=err)
 
