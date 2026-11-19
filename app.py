@@ -21,6 +21,7 @@ import config
 import db
 import engine
 import mailer
+import market
 from delta_client import DeltaError
 from engine import LifecycleError
 
@@ -364,7 +365,7 @@ def trade(u, aid):
     a = own_account(u, aid)
     if a["status"] in ("pending_payment", "payment_review", "awaiting_setup"):
         return redirect(url_for("dashboard"))
-    return render_template("account.html", **account_ctx(u, a, admin_view=False))
+    return render_template("terminal.html", **account_ctx(u, a, admin_view=False))
 
 
 def account_ctx(u, a, admin_view):
@@ -398,6 +399,45 @@ def api_state(u, aid):
     out["trades_today"] = db.q("SELECT COUNT(*) n FROM orders WHERE account_id=? AND day=? AND kind='entry' "
                                "AND status='sent'", (aid, engine.today()), one=True)["n"]
     return jsonify(out)
+
+
+@app.route("/api/market/<symbol>/<kind>")
+@login_required()
+def api_market(u, symbol, kind):
+    if not re.fullmatch(r"[A-Z0-9_]{3,24}", symbol):
+        abort(404)
+    fn = {"ticker": lambda: market.ticker(symbol), "book": lambda: market.orderbook(symbol, 15),
+          "trades": lambda: market.trades(symbol),
+          "candles": lambda: market.candles(symbol, request.args.get("res", "5m"))}.get(kind) or abort(404)
+    data, err = market.safe(fn)
+    return jsonify(ok=err is None, data=data, error=err)
+
+
+@app.route("/api/account/<int:aid>/orders")
+@login_required()
+def api_orders(u, aid):
+    a = own_account(u, aid)
+    try:
+        c = engine.client_for(a)
+        return jsonify(ok=True, orders=c.open_orders(), fills=c.fills(40))
+    except DeltaError as e:
+        return jsonify(ok=False, error=str(e), orders=[], fills=[])
+
+
+@app.route("/account/<int:aid>/cancel", methods=["POST"])
+@login_required()
+def cancel(u, aid):
+    a = own_account(u, aid)
+    oid, kind = request.form.get("id", ""), request.form.get("type", "")
+    if db.rules_of(a)["require_stop_loss"] and "stop_loss" in kind:
+        return jsonify(ok=False, message="Stop-losses are required on this account, so they can't be cancelled. "
+                                         "Close the position instead.")
+    try:
+        engine.client_for(a).cancel_order(oid, request.form.get("product_id") or 0)
+        engine.log_order(a, "sent", f"Cancelled order {oid}", symbol=request.form.get("symbol"), kind="cancel")
+        return jsonify(ok=True, message="Order cancelled")
+    except (DeltaError, ValueError) as e:
+        return jsonify(ok=False, message=str(e))
 
 
 @app.route("/account/<int:aid>/order", methods=["POST"])

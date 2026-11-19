@@ -112,10 +112,25 @@ class DeltaClient:
     def open_orders(self):
         out = []
         for o in self._req("GET", "/v2/orders", query={"states": "open,pending"}) or []:
-            out.append({"symbol": o.get("product_symbol"), "side": o.get("side"),
+            out.append({"id": o.get("id"), "product_id": o.get("product_id"),
+                        "symbol": o.get("product_symbol"), "side": o.get("side"),
                         "size": o.get("unfilled_size") or o.get("size"),
                         "limit": o.get("limit_price"), "stop": o.get("stop_price"),
-                        "type": o.get("stop_order_type") or o.get("order_type")})
+                        "type": o.get("stop_order_type") or o.get("order_type"),
+                        "reduce_only": o.get("reduce_only"), "created_at": o.get("created_at")})
+        return out
+
+    def cancel_order(self, order_id, product_id):
+        return self._req("DELETE", "/v2/orders", body={"id": int(order_id), "product_id": int(product_id)})
+
+    def fills(self, limit=50):
+        out = []
+        for f in self._req("GET", "/v2/fills", query={"page_size": limit}) or []:
+            meta = (f.get("meta_data") or {}).get("new_position") or {}
+            out.append({"id": f.get("id"), "symbol": f.get("product_symbol") or (f.get("product") or {}).get("symbol"),
+                        "side": f.get("side"), "size": f.get("size"), "price": f.get("price"),
+                        "fee": f.get("commission"), "role": f.get("role"), "realized_pnl": meta.get("realized_pnl"),
+                        "created_at": f.get("created_at")})
         return out
 
     def cancel_all(self):

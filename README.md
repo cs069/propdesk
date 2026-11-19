@@ -23,12 +23,21 @@ cd propdesk
 It starts in **paper mode**: simulated fills on live Delta prices, no keys and no money, so you can try everything safely.
 To let friends on your Wi-Fi open it, add `HOST=0.0.0.0` to `.env` and share `http://<your-PC-IP>:8000`.
 
-## What your friend sees
-- **Equity in ₹:** a bar showing where they stand between the fail level, today's stop and their goal.
-- **Today:** P&L, loss room left today and overall, and open P&L.
-- **Equity chart, open positions and recent activity.**
-- **Order panel:** buy/sell, contracts, leverage, stop-loss and take-profit. It shows the loss if the stop hits before they place the order.
-- **Rules checklist** with live meters, plus their profit share.
+## What your friend sees: a Delta-style trading terminal
+- **Top bar:** market switcher (BTCUSD, ETHUSD…) with last price, 24h change, mark price, 24h high/low, volume and funding. Their equity and today's P&L in ₹.
+- **Candlestick chart** (1m to 1d) with lines for their entry, stop-loss, take-profit, liquidation price and open orders.
+- **Order book and recent trades.** Click a price in the book to use it as the limit price.
+- **Order panel:**
+  - Limit or Market, buy or sell, quantity in contracts with 10/25/50/100% buttons (the maximum respects margin and the per-trade loss limit).
+  - Leverage slider, stop-loss and take-profit with quick % buttons.
+  - Before they place it: order value, margin, loss at the stop-loss and profit at the take-profit.
+- **Limit meters:** daily loss, max loss and profit goal, updating live.
+- **Tabs:** Positions (close one or all), Open orders (cancel; a stop-loss can't be cancelled while stop-losses are required), Fills, and Rules.
+
+**Where the data comes from:**
+- **Market data** (chart, order book, trades, prices) always comes from Delta Exchange's public API, so it matches Delta.
+- **In `testnet` / `live` mode,** balance, positions, orders, fills and liquidation prices come straight from the friend's Delta sub-account.
+- **In `paper` mode,** fills are simulated on Delta's live prices.
 
 ## What you control (per friend)
 Capital (₹), daily loss limit % (end the account or pause for the day), and max loss % (from starting capital or from highest equity).

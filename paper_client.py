@@ -79,7 +79,17 @@ class PaperClient:
         a = self.acct
         cv = self.product(symbol)["contract_value"]
         signed = size if side == "buy" else -size
-        a["cash"] -= abs(size) * cv * px * FEE
+        fee = abs(size) * cv * px * FEE
+        a["cash"] -= fee
+        cash_before = a["cash"]
+        a.setdefault("fills", []).insert(0, {"id": int(time.time() * 1e6), "symbol": symbol, "side": side, "size": size,
+                                             "price": px, "fee": round(fee, 6), "role": "taker",
+                                             "created_at": time.time(), "realized_pnl": 0})
+        del a["fills"][200:]
+        self._finish_fill(a, symbol, signed, px, cv)
+        a["fills"][0]["realized_pnl"] = round(a["cash"] - cash_before, 6)
+
+    def _finish_fill(self, a, symbol, signed, px, cv):
         pos = a["positions"].get(symbol)
         if not pos:
             a["positions"][symbol] = {"size": signed, "entry": px, "sl": None, "tp": None}
@@ -152,8 +162,10 @@ class PaperClient:
                     raise DeltaError("reduce_only: no position")
                 size = min(size, abs(pos["size"]))
             if order_type == "limit_order":
-                a["orders"].append({"symbol": symbol, "side": side, "size": size,
-                                    "limit": float(limit_price), "sl": stop_loss, "tp": take_profit})
+                a["orders"].append({"id": int(time.time() * 1e6), "product_id": symbol, "symbol": symbol,
+                                    "side": side, "size": size, "limit": float(limit_price), "stop": None,
+                                    "type": "limit_order", "sl": stop_loss, "tp": take_profit,
+                                    "created_at": time.time()})
             else:
                 self._fill(symbol, side, size, price(symbol))
                 p = a["positions"].get(symbol)
@@ -183,7 +195,31 @@ class PaperClient:
         return []
 
     def open_orders(self):
-        return list(self.acct["orders"])
+        out = list(self.acct["orders"])
+        for sym, pos in self.acct["positions"].items():  # show brackets like Delta's stop orders
+            close = "sell" if pos["size"] > 0 else "buy"
+            if pos.get("sl"):
+                out.append({"id": f"sl-{sym}", "product_id": sym, "symbol": sym, "side": close, "size": abs(pos["size"]),
+                            "limit": None, "stop": pos["sl"], "type": "stop_loss_order", "reduce_only": True})
+            if pos.get("tp"):
+                out.append({"id": f"tp-{sym}", "product_id": sym, "symbol": sym, "side": close, "size": abs(pos["size"]),
+                            "limit": None, "stop": pos["tp"], "type": "take_profit_order", "reduce_only": True})
+        return out
+
+    def cancel_order(self, order_id, product_id):
+        with _lock:
+            a = self.acct
+            oid = str(order_id)
+            if oid.startswith(("sl-", "tp-")):
+                pos = a["positions"].get(oid[3:])
+                if pos:
+                    pos["sl" if oid.startswith("sl-") else "tp"] = None
+            else:
+                a["orders"] = [o for o in a["orders"] if str(o.get("id")) != oid]
+            _save()
+
+    def fills(self, limit=50):
+        return list(self.acct.get("fills", []))[:limit]
 
     # --- paper-only helpers used by the admin lifecycle (stand-ins for Delta transfers)
     def reset_balance(self, amount):

@@ -145,3 +145,82 @@ svg.chart{width:100%;height:230px;display:block}
 .steps span.on{background:var(--brand);color:#fff}.steps span.done{background:rgba(46,211,163,.14);color:var(--pos)}
 .bar{height:7px;background:var(--bg2);border-radius:6px;overflow:hidden;margin-top:8px}.bar>i{display:block;height:100%;background:var(--pos)}
 .rules{padding-left:18px;margin:0;color:var(--mute)}.rules li{margin:4px 0}.rules b{color:var(--text)}
+
+/* ================= trading terminal ================= */
+.term{min-height:100vh;display:flex;flex-direction:column;background:var(--bg2)}
+.tbar{display:flex;align-items:center;gap:18px;padding:10px 16px;background:var(--bg);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tbar .logo{padding:0;color:var(--text)}.tbar .logo:hover{text-decoration:none}
+.mkts{display:flex;gap:4px}
+.mkt{padding:7px 12px;border-radius:9px;background:transparent;border-color:transparent;color:var(--mute);font-size:14px}
+.mkt.on{background:var(--panel2);color:var(--text);border-color:var(--line2)}
+.tick,.acct{display:flex;gap:20px;align-items:center}
+.tick div,.acct div{display:flex;flex-direction:column;line-height:1.25}
+.tick span,.acct div span{font-size:11.5px;color:var(--faint);font-weight:600}
+.tick b,.acct b{font-size:14px;font-weight:700}
+#t-last{font-size:17px}
+.acct{margin-left:auto;gap:16px}
+.tbanner .banner{margin:10px 16px 0}
+.tgrid{flex:1;display:grid;gap:1px;background:var(--line);grid-template-columns:minmax(0,1fr) 290px 330px;
+  grid-template-rows:minmax(460px,62vh) auto;grid-template-areas:"chart book ticket" "bottom bottom ticket"}
+.tp{background:var(--bg);min-width:0;display:flex;flex-direction:column}
+.chartp{grid-area:chart}.bookp{grid-area:book}.ticketp{grid-area:ticket;overflow-y:auto}.bottomp{grid-area:bottom;min-height:240px}
+.phead{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);min-height:44px}
+.phead .grow{flex:1}
+.tabs button{background:transparent;border:0;border-radius:0;padding:8px 4px;margin-right:12px;color:var(--mute);font-size:14px;box-shadow:inset 0 -2px 0 transparent}
+.tabs button.on{color:var(--text);box-shadow:inset 0 -2px 0 var(--brand)}
+.tabs button span{color:var(--brand);margin-left:2px}
+.res{display:flex;gap:2px}.res button{padding:5px 9px;font-size:12.5px;background:transparent;border-color:transparent;color:var(--mute)}
+.res button.on{background:var(--panel2);color:var(--text)}
+.chartbox{flex:1;min-height:320px}
+.credit{font-size:11px;color:var(--faint);padding:4px 12px 6px}.credit a{color:var(--faint)}
+
+/* order book */
+.bhead,.brow{display:grid;grid-template-columns:1.2fr 1fr 1fr;padding:3px 12px;font-size:12.5px}
+.bhead{color:var(--faint);font-weight:600;padding-top:8px;padding-bottom:6px}
+.bhead span+span,.brow span+span{text-align:right}
+.book{display:flex;flex-direction:column}
+.brow{position:relative;width:100%;background:transparent;border:0;border-radius:0;color:var(--text);font-weight:600;text-align:left;cursor:pointer}
+.brow::before{content:"";position:absolute;top:1px;bottom:1px;right:0;width:var(--w,0);opacity:.16}
+.brow.ask span:first-child{color:var(--neg)}.brow.bid span:first-child{color:var(--pos)}
+.brow.ask::before{background:var(--neg)}.brow.bid::before{background:var(--pos)}
+.brow:hover{background:var(--panel)}.brow.static{cursor:default}
+.brow span{position:relative}
+.spread{display:flex;justify-content:space-between;align-items:baseline;padding:8px 12px;border-block:1px solid var(--line);margin:4px 0}
+.spread b{font-size:17px}.spread span{font-size:11.5px;color:var(--faint)}
+
+/* ticket */
+.ticketp form{padding:14px 16px 6px}
+.ticketp label{margin-top:12px}
+.inp{position:relative}.inp em{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-style:normal;color:var(--faint);font-size:12.5px;pointer-events:none}
+.inp input{padding-right:84px}
+.pcts{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:6px}
+.pcts.mini{grid-template-columns:repeat(3,1fr)}
+.pcts button{padding:5px 0;font-size:12px;background:var(--bg2);border-color:var(--line);color:var(--mute);border-radius:7px}
+.pcts button:hover{color:var(--text)}
+input[type=range]{padding:0;height:6px;accent-color:var(--brand);background:transparent;border:0;margin:8px 0 2px}
+input[type=range]:focus{box-shadow:none}
+.ticketp .summary div{padding:3px 0}
+.limits{padding:6px 16px 16px;border-top:1px solid var(--line);margin-top:8px}
+.limits .rule:first-of-type{padding-top:12px}
+
+/* bottom */
+.bottomp .tablewrap{margin:0;padding:0 6px}
+.bottomp td,.bottomp th{padding:9px 10px;font-size:13.5px}
+.rulesgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:1px;background:var(--line);margin:12px;border:1px solid var(--line);border-radius:var(--r)}
+.rulesgrid div{background:var(--bg);padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.rulesgrid span{font-size:12px;color:var(--faint);font-weight:600}.rulesgrid b{font-size:14px}.rulesgrid em{font-style:normal;font-size:12px;color:var(--mute)}
+
+@media(max-width:1200px){.tgrid{grid-template-columns:minmax(0,1fr) 320px;grid-template-rows:minmax(420px,55vh) auto auto;
+  grid-template-areas:"chart ticket" "book ticket" "bottom bottom"}.hide-m{display:none!important}.bookp{max-height:420px;overflow:auto}}
+@media(max-width:760px){.tgrid{grid-template-columns:minmax(0,1fr);grid-template-rows:auto;grid-template-areas:"chart" "ticket" "book" "bottom"}
+  .chartp{height:420px}.hide-s{display:none!important}.acct{margin-left:0}.tbar{gap:12px}}
+/* order book fits its panel: asks grow upward from the spread, bids downward */
+.bookp{overflow:hidden}
+#pane-book,#pane-trades{flex:1;min-height:0;display:flex;flex-direction:column}
+#pane-book[hidden],#pane-trades[hidden]{display:none}
+.book.asks{flex:1;min-height:0;overflow:hidden;justify-content:flex-end}
+.book.bids{flex:1;min-height:0;overflow:hidden}
+#trades{flex:1;min-height:0;overflow-y:auto}
+@media(max-width:1200px){.bookp{height:420px}}
+@media(max-width:760px){.bookp{height:auto}.book.asks,.book.bids{flex:none;height:200px}
+  .bottomp .phead{overflow-x:auto;flex-wrap:nowrap}.tabs button{white-space:nowrap}}
