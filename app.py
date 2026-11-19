@@ -22,6 +22,7 @@ import db
 import engine
 import mailer
 import market
+import stats
 from delta_client import DeltaError
 from engine import LifecycleError
 
@@ -83,7 +84,7 @@ def csrf_token():
 app.jinja_env.globals.update(
     csrf_token=csrf_token, MODE=config.MODE, ASSET=config.SETTLE_ASSET, FIRM=config.FIRM_NAME,
     PHASE=engine.PHASE_LABEL, STATUS=engine.STATUS_LABEL, USD_INR=config.USD_INR, plan_of=db.plan_of,
-    rules_of=db.rules_of,
+    rules_of=db.rules_of, inf=float("inf"),
 )
 
 
@@ -291,18 +292,47 @@ def profile(u):
 
 
 # ================================================================ trader
+def contract_values(a):
+    out = {}
+    try:
+        c = engine.client_for(a)
+        for sym in db.rules_of(a)["allowed_symbols"]:
+            out[sym] = c.product(sym)["contract_value"]
+    except DeltaError:
+        pass
+    return out
+
+
+def pick_account(u):
+    accs = db.q("SELECT * FROM accounts WHERE user_id=? ORDER BY (status IN ('active','paused_day')) DESC, id DESC",
+                (u["id"],))
+    aid = request.args.get("aid", type=int)
+    return next((a for a in accs if a["id"] == aid), accs[0] if accs else None), accs
+
+
 @app.route("/dashboard")
 @login_required()
 def dashboard(u):
-    accs = db.q("SELECT * FROM accounts WHERE user_id=? ORDER BY id DESC", (u["id"],))
-    live = [a for a in accs if a["status"] not in ("pending_payment", "payment_review", "awaiting_setup")]
-    if len(live) == 1 and len(accs) == 1:
-        return redirect(url_for("trade", aid=live[0]["id"]))
-    for a in accs:
-        a["m"] = engine.metrics(a) if a["starting_balance"] else None
-    pays = db.q("SELECT * FROM payouts WHERE user_id=? ORDER BY id DESC", (u["id"],))
-    paid = sum(p["trader_share_inr"] for p in pays if p["status"] == "paid")
-    return render_template("dashboard.html", user=u, accounts=accs, payouts=pays, paid_total=paid)
+    if u["is_admin"]:
+        return redirect(url_for("admin_home"))
+    a, accs = pick_account(u)
+    if not a:
+        return render_template("home.html", user=u, a=None, accounts=[])
+    engine.sync_fills(a, force=True)
+    try:
+        equity, _ = engine.client_for(a).account_state()   # live equity, not the last watcher reading
+    except DeltaError:
+        equity = None
+    m = engine.metrics(a, equity)
+    trades = stats.closed_trades(a, contract_values(a))
+    snaps = db.q("SELECT ts, equity FROM equity_snaps WHERE account_id=? AND ts>=? ORDER BY ts",
+                 (a["id"], a["phase_started_at"] or 0))
+    if len(snaps) > 400:
+        snaps = snaps[:: len(snaps) // 400 + 1]
+    reset_at = datetime.combine(engine.now_ist().date(), datetime.min.time(), config.TZ).timestamp() + 86400
+    return render_template("home.html", user=u, a=a, accounts=accs, m=m, s=stats.summary(a, trades, m),
+                           trades=trades[:25], snaps=snaps, plan=db.plan_of(a), rules=db.rules_of(a),
+                           reset_at=reset_at, sessions=stats.SESSIONS)
 
 
 @app.route("/plans")
@@ -372,7 +402,10 @@ def account_ctx(u, a, admin_view):
     snaps = db.q("SELECT ts, equity FROM equity_snaps WHERE account_id=? ORDER BY ts", (a["id"],))
     if len(snaps) > 400:
         snaps = snaps[:: len(snaps) // 400 + 1]
+    reset_at = datetime.combine(engine.now_ist().date(), datetime.min.time(), config.TZ).timestamp() + 86400
     return dict(user=u, a=a, rules=db.rules_of(a), plan=db.plan_of(a), admin_view=admin_view, snaps=snaps,
+                reset_at=reset_at, accounts=db.q("SELECT id, plan_json, status FROM accounts WHERE user_id=? "
+                                                 "ORDER BY id DESC", (a["user_id"],)),
                 owner=db.q("SELECT * FROM users WHERE id=?", (a["user_id"],), one=True),
                 orders=db.q("SELECT * FROM orders WHERE account_id=? ORDER BY ts DESC LIMIT 12", (a["id"],)),
                 viol=db.q("SELECT * FROM violations WHERE account_id=? ORDER BY ts DESC LIMIT 5", (a["id"],)))
@@ -424,6 +457,25 @@ def api_orders(u, aid):
         return jsonify(ok=False, error=str(e), orders=[], fills=[])
 
 
+@app.route("/api/account/<int:aid>/history")
+@login_required()
+def api_history(u, aid):
+    a = own_account(u, aid)
+    engine.sync_fills(a, every=5)
+    trades = stats.closed_trades(a, contract_values(a))
+    logs = db.q("SELECT ts, kind, symbol, side, size, order_type, limit_price, stop_loss, take_profit, leverage, status, "
+                "message FROM orders WHERE account_id=? ORDER BY ts DESC LIMIT 60", (aid,))
+    viol = db.q("SELECT ts, rule, detail, action FROM violations WHERE account_id=? ORDER BY ts DESC LIMIT 20", (aid,))
+    return jsonify(trades=trades[:60], logs=logs, violations=viol)
+
+
+@app.route("/api/movers")
+@login_required()
+def api_movers(u):
+    data, err = market.safe(market.movers)
+    return jsonify(ok=err is None, data=data or [], error=err)
+
+
 @app.route("/account/<int:aid>/cancel", methods=["POST"])
 @login_required()
 def cancel(u, aid):
@@ -450,7 +502,9 @@ def order(u, aid):
         a, symbol=request.form.get("symbol", ""), side=request.form.get("side", ""),
         size=int(fnum("size", 0) or 0), leverage=int(fnum("leverage", 1) or 1),
         order_type="limit_order" if request.form.get("order_type") == "limit" else "market_order",
-        limit_price=fnum("limit_price"), stop_loss=fnum("stop_loss"), take_profit=fnum("take_profit"))
+        limit_price=fnum("limit_price"), stop_loss=fnum("stop_loss"), take_profit=fnum("take_profit"),
+        reduce_only=request.form.get("reduce_only") == "1")
+    engine.sync_fills(a, force=True)
     return jsonify(ok=ok, message=msg)
 
 
@@ -467,6 +521,7 @@ def close(u, aid):
             c.close_position(sym)
             msg = f"Closed {sym}"
         engine.log_order(a, "sent", msg, symbol=sym, kind="close")
+        engine.sync_fills(a, force=True)
         return jsonify(ok=True, message=msg)
     except DeltaError as e:
         return jsonify(ok=False, message=str(e))

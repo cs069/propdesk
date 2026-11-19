@@ -201,6 +201,23 @@ def check_order(acc, symbol, side, size, leverage, order_type, limit_price, stop
 
 
 def place_order(acc, **o):
+    if o.get("reduce_only"):   # closing/reducing only: lowers risk, so stop-loss & risk checks don't apply
+        r = db.rules_of(acc)
+        if acc["status"] != "active":
+            return False, f"Account is {STATUS_LABEL.get(acc['status'], acc['status'])}."
+        if o["symbol"] not in r["allowed_symbols"] or o["side"] not in ("buy", "sell") or o["size"] <= 0:
+            return False, "Check market, side and size"
+        try:
+            c = client_for(acc)
+            pos = next((p for p in c.positions() if p["symbol"] == o["symbol"]), None)
+            if not pos or (pos["size"] > 0) == (o["side"] == "buy"):
+                return False, "Reduce-only needs an open position in the opposite direction"
+            oid = c.place_order(o["symbol"], o["side"], min(o["size"], abs(pos["size"])), o["order_type"],
+                                o.get("limit_price"), reduce_only=True)
+            log_order(acc, "sent", "reduce-only", exchange_order_id=oid, **{**o, "kind": "close"})
+            return True, f"Reduce-only order sent: {o['side']} {o['size']} {o['symbol']}"
+        except DeltaError as ex:
+            return False, f"Exchange error: {ex}"
     ok, msg = check_order(acc, o["symbol"], o["side"], o["size"], o["leverage"], o["order_type"],
                           o.get("limit_price"), o.get("stop_loss"), o.get("take_profit"))
     if not ok:
@@ -295,11 +312,25 @@ def roll_day(acc, equity):
 
 
 _last_snap = {}
+_last_fills = {}
+
+
+def sync_fills(acc, force=False, every=30):
+    """Copy the latest fills from Delta (or the simulator) into our database for trade history."""
+    import stats
+    if not force and time.time() - _last_fills.get(acc["id"], 0) < every:
+        return
+    _last_fills[acc["id"]] = time.time()
+    try:
+        stats.store_fills(acc, client_for(acc).fills(100))
+    except DeltaError:
+        pass
 
 
 def check_account(acc):
     c = client_for(acc)
     equity, positions = c.account_state()
+    sync_fills(acc)
     with _lock:
         acc = db.account(acc["id"])           # re-read: admin may have changed it meanwhile
         if acc["status"] not in WATCHED:

@@ -86,3 +86,18 @@ def safe(fn, *a, **kw):
         return fn(*a, **kw), None
     except DeltaError as e:
         return None, str(e)
+
+
+def movers(limit=14):
+    """Most traded perpetuals with 24h change, for the ticker strip."""
+    def get():
+        rows = _pub._req("GET", "/v2/tickers", query={"contract_types": "perpetual_futures"}, auth=False) or []
+        out = []
+        for t in rows:
+            last, opn = _f(t.get("close")), _f(t.get("open"))
+            if not last or not opn:
+                continue
+            out.append({"symbol": t.get("symbol"), "last": last, "change_pct": (last - opn) / opn * 100,
+                        "turnover": _f(t.get("turnover_usd") or t.get("turnover"), 0)})
+        return sorted(out, key=lambda r: r["turnover"], reverse=True)[:limit]
+    return _cached(("movers",), 15, get)

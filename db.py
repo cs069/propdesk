@@ -80,6 +80,12 @@ CREATE TABLE IF NOT EXISTS payouts (
     status TEXT NOT NULL,              -- requested | approved | paid | rejected
     admin_note TEXT DEFAULT '', utr TEXT DEFAULT '', paid_at REAL
 );
+CREATE TABLE IF NOT EXISTS fills (
+    account_id INTEGER NOT NULL, fill_id TEXT NOT NULL, ts REAL NOT NULL,
+    symbol TEXT, side TEXT, size REAL, price REAL, fee REAL,
+    PRIMARY KEY (account_id, fill_id)
+);
+CREATE INDEX IF NOT EXISTS idx_fills ON fills(account_id, ts);
 CREATE INDEX IF NOT EXISTS idx_snaps ON equity_snaps(account_id, ts);
 CREATE INDEX IF NOT EXISTS idx_orders ON orders(account_id, ts);
 """

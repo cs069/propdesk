@@ -1,0 +1,45 @@
+{# Shared trader chrome: icon rail + top bar. Usage: {% extends "_trader.html" %} with block content #}
+{% extends "base.html" %}
+{% macro icon(name) -%}
+<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+{%- if name == 'home' %}<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>
+{%- elif name == 'terminal' %}<path d="M6 3v18M18 3v18"/><rect x="4" y="7" width="4" height="8" rx="1"/><rect x="16" y="9" width="4" height="6" rx="1"/><path d="M12 5v14"/><rect x="10" y="10" width="4" height="5" rx="1"/>
+{%- elif name == 'history' %}<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>
+{%- elif name == 'rules' %}<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>
+{%- elif name == 'logout' %}<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/>
+{%- elif name == 'user' %}<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>
+{%- endif %}</svg>
+{%- endmacro %}
+{% block page %}
+{% set ep = request.endpoint %}
+<div class="app">
+  <nav class="rail" aria-label="Main">
+    <a class="rlogo" href="{{ url_for('dashboard') }}" aria-label="{{ FIRM }}"><i></i></a>
+    <a href="{{ url_for('dashboard', aid=a.id if a else None) }}" class="{{ 'on' if ep == 'dashboard' }}" title="Dashboard">{{ icon('home') }}<span>Dashboard</span></a>
+    {% if a %}
+    <a href="{{ url_for('trade', aid=a.id) }}" class="{{ 'on' if ep == 'trade' }}" title="Terminal">{{ icon('terminal') }}<span>Terminal</span></a>
+    <a href="{{ url_for('report', aid=a.id) }}" class="{{ 'on' if ep == 'report' }}" title="History">{{ icon('history') }}<span>History</span></a>
+    {% endif %}
+    <span class="grow"></span>
+    <a href="{{ url_for('logout') }}" title="Log out">{{ icon('logout') }}<span>Log out</span></a>
+  </nav>
+  <div class="appmain">
+    <header class="topbar">
+      {% if a %}
+      <div class="acctchip">
+        <span class="dot {{ a.status }}"></span>
+        <select aria-label="Account" onchange="location='?aid='+this.value">
+          {% for x in accounts %}<option value="{{ x.id }}" {{ 'selected' if x.id == a.id }}>#{{ x.id }} · {{ plan_of(x).name }}</option>{% endfor %}
+        </select>
+        <span class="pill {{ a.status }}">{{ STATUS.get(a.status, a.status) }}</span>
+      </div>
+      {% endif %}
+      {% block topextra %}{% endblock %}
+      <span class="grow"></span>
+      <span class="mode {{ MODE }}">{{ 'Paper trading' if MODE == 'paper' else 'Demo account' if MODE == 'testnet' else 'Live' }}</span>
+      <div class="me">{{ icon('user') }}<div><b>{{ user.full_name or user.username }}</b><span>{{ user.username }}</span></div></div>
+    </header>
+    {% block content %}{% endblock %}
+  </div>
+</div>
+{% endblock %}

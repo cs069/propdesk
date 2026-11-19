@@ -1,0 +1,159 @@
+{% extends "_trader.html" %}
+{% block title %}Dashboard · {{ FIRM }}{% endblock %}
+{% block content %}
+{% set R = USD_INR %}
+<div class="dash">
+{% if not a %}
+  <section class="hero"><h1>Welcome, {{ user.full_name or user.username }}</h1>
+    <p class="sub">You don't have a trading account yet. Your admin will add one for you.</p></section>
+{% else %}
+  <section class="hero">
+    <div class="hero-top">
+      <div>
+        <h1>Welcome back, {{ (user.full_name or user.username).split(' ')[0] }}</h1>
+        <p class="sub">{{ plan.name }} · {{ rules.allowed_symbols|join(', ') }} · up to {{ rules.max_leverage }}x</p>
+      </div>
+      <div class="chips">
+        <div class="chip">
+          {% if trades %}{% set t = trades[0] %}
+            <span class="k">Last trade</span><b class="{{ 'pos' if t.net > 0 else 'neg' }}">{{ (t.net * R)|rs_signed }}</b><span class="faint">{{ t.symbol }} {{ t.side }}</span>
+          {% else %}<span class="k">No trades yet</span><b><a href="{{ url_for('trade', aid=a.id) }}">Open the terminal</a></b>{% endif %}
+        </div>
+        <div class="chip"><span class="k">Daily limits reset in</span><b class="clock" id="reset" data-at="{{ reset_at }}">—</b><span class="faint">midnight IST</span></div>
+      </div>
+    </div>
+    <div class="bigstats">
+      <div><span>Total P&amp;L</span><b class="{{ 'pos' if m.total_pnl > 0 else 'neg' if m.total_pnl < 0 }}">{{ (m.total_pnl * R)|rs_signed }}</b><em>{{ "%+.2f"|format(m.total_pnl_pct) }}% on {{ (m.starting_balance * R)|rs }}</em></div>
+      <div><span>Your share{% if plan.profit_split_pct %} ({{ plan.profit_split_pct|round(0)|int }}%){% endif %}</span><b class="pos">{{ (s.share * R)|rs }}</b><em>of profit so far</em></div>
+      <div><span>Win rate</span><b>{{ "%.0f"|format(s.win_rate) }}%</b><em>{{ s.wins }} wins · {{ s.losses }} losses</em></div>
+      <div><span>Profit factor</span><b>{{ '—' if s.profit_factor is none or not s.trades else ('∞' if s.profit_factor == inf else "%.2f"|format(s.profit_factor)) }}</b><em>gross wins ÷ gross losses</em></div>
+    </div>
+  </section>
+
+  <section class="counts">
+    <div><b>{{ s.trades }}</b><span>Closed trades</span></div>
+    <div><b class="{{ 'pos' if s.avg_trade > 0 else 'neg' if s.avg_trade < 0 }}">{{ (s.avg_trade * R)|rs_signed }}</b><span>Average trade</span></div>
+    <div><b class="{{ 'pos' if s.best > 0 else 'neg' if s.best < 0 }}">{{ (s.best * R)|rs_signed }}</b><span>Best trade</span></div>
+    <div><b class="{{ 'pos' if s.worst > 0 else 'neg' if s.worst < 0 }}">{{ (s.worst * R)|rs_signed }}</b><span>Worst trade</span></div>
+    <div><b>{% if s.hold_sec >= 3600 %}{{ "%.1f"|format(s.hold_sec / 3600) }}h{% elif s.hold_sec %}{{ (s.hold_sec / 60)|round|int }}m{% else %}—{% endif %}</b><span>Average hold</span></div>
+  </section>
+
+  <div class="dgrid">
+    <section class="panel span2">
+      <div class="ph"><h2>Equity</h2><span class="faint small">{{ (m.equity * R)|rs }} now</span></div>
+      <svg class="chart" id="eqchart" viewBox="0 0 1000 230" preserveAspectRatio="none" role="img" aria-label="Equity curve"></svg>
+      <div class="small faint" id="eqnote"></div>
+    </section>
+
+    <section class="panel">
+      <div class="ph"><h2>Account health</h2></div>
+      {% set lo = m.dd_floor %}{% set hi = m.goal_equity or (m.starting_balance * 2 - m.dd_floor) %}
+      {% set pos_pct = ([[ (m.equity - lo) / (hi - lo) * 100, 3]|max, 97]|min) %}
+      <div class="mini-run"><i style="left:{{ pos_pct }}%"></i><u style="left:{{ (m.starting_balance - lo) / (hi - lo) * 100 }}%"></u></div>
+      <div class="ends"><div>Max loss<b>{{ (lo * R)|rs }}</b></div><div style="text-align:center">Start<b>{{ (m.starting_balance * R)|rs }}</b></div><div style="text-align:right">{{ 'Goal' if m.goal_equity else 'Start +' ~ rules.max_drawdown_pct ~ '%' }}<b>{{ (hi * R)|rs }}</b></div></div>
+      <dl class="health">
+        {% set day_used = m.daily_loss_limit - m.daily_loss_left %}
+        <dt>Daily loss used</dt><dd><span class="{{ 'neg' if day_used > 0 }}">{{ ([day_used, 0]|max * R)|rs }}</span> / {{ (m.daily_loss_limit * R)|rs }}</dd>
+        {% set dd_used = (m.starting_balance - m.dd_floor) - m.dd_left %}
+        <dt>Max loss used</dt><dd><span class="{{ 'neg' if dd_used > 0 }}">{{ ([dd_used, 0]|max * R)|rs }}</span> / {{ ((m.starting_balance - m.dd_floor) * R)|rs }}</dd>
+        {% if m.goal_equity %}<dt>Profit goal</dt><dd>{{ ([m.total_pnl, 0]|max * R)|rs }} / {{ ((m.goal_equity - m.starting_balance) * R)|rs }}</dd>{% endif %}
+        <dt>Rule breaks</dt><dd class="{{ 'neg' if s.violations }}">{{ s.violations }}</dd>
+      </dl>
+    </section>
+
+    <section class="panel span3 bias">
+      <div class="ph"><h2>Long vs short</h2><span class="faint small">share of closed trades</span></div>
+      <div class="biasrow">
+        <div class="bside l"><b class="pos">{{ "%.0f"|format(s.long.pct) }}%</b><span>Long · {{ s.long.n }} trades</span><em class="{{ 'pos' if s.long.pnl > 0 else 'neg' if s.long.pnl < 0 }}">{{ (s.long.pnl * R)|rs_signed }}</em></div>
+        <div class="biasbar" role="img" aria-label="{{ '%.0f'|format(s.long.pct) }}% long">
+          <i class="l" style="width:{{ s.long.pct if s.trades else 50 }}%"></i><i class="s" style="width:{{ s.short.pct if s.trades else 50 }}%"></i>
+          <span class="mid"></span>
+        </div>
+        <div class="bside s"><b class="neg">{{ "%.0f"|format(s.short.pct) }}%</b><span>Short · {{ s.short.n }} trades</span><em class="{{ 'pos' if s.short.pnl > 0 else 'neg' if s.short.pnl < 0 }}">{{ (s.short.pnl * R)|rs_signed }}</em></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="ph"><h2>Win rate by session</h2></div>
+      {% for x in s.sessions %}
+      <div class="sess"><div><b>{{ x.name }}</b><span>{{ "%.0f"|format(x.rate) }}%</span></div>
+        <div class="meter"><i style="width:{{ x.rate }}%"></i></div>
+        <em>{{ x.wins }} wins of {{ x.trades }} trades · <span class="{{ 'pos' if x.pnl > 0 else 'neg' if x.pnl < 0 }}">{{ (x.pnl * R)|rs_signed }}</span></em></div>
+      {% endfor %}
+    </section>
+
+    <section class="panel">
+      <div class="ph"><h2>Market sessions</h2><span class="clockchip" id="utc">—</span></div>
+      <div class="hours">
+        <div class="hscale">{% for h in [0,4,8,12,16,20,24] %}<span style="left:{{ h / 24 * 100 }}%">{{ '%02d'|format(h) }}</span>{% endfor %}</div>
+        {% for name, s0, s1 in sessions %}
+        <div class="hrow"><span>{{ name }}</span><div class="htrack"><i style="left:{{ s0 / 24 * 100 }}%;width:{{ (s1 - s0) / 24 * 100 }}%" data-s="{{ s0 }}" data-e="{{ s1 }}"></i></div></div>
+        {% endfor %}
+        <div class="hnow" id="hnow"></div>
+      </div>
+      <p class="small faint" style="margin:10px 0 0">Times in UTC. Crypto trades 24/7; sessions show when volume is usually highest.</p>
+    </section>
+
+    <section class="panel">
+      <div class="ph"><h2>Trading style</h2></div>
+      <svg viewBox="-60 -6 420 272" class="radar" role="img" aria-label="Trading style scores"></svg>
+    </section>
+
+    <section class="panel span3">
+      <div class="ph"><h2>Closed trades</h2><a class="small" href="{{ url_for('trade', aid=a.id) }}">Open terminal</a></div>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Market</th><th>Side</th><th class="num">Size</th><th class="num">Open</th><th class="num">Close</th><th class="num">Fees</th><th class="num">Net P&amp;L</th><th>Opened</th><th>Closed</th></tr></thead>
+        <tbody>
+        {% for t in trades %}<tr><td><b>{{ t.symbol }}</b></td><td class="{{ 'pos' if t.side == 'long' else 'neg' }}">{{ t.side|capitalize }}</td>
+          <td class="num">{{ t.size|round(0)|int }}</td><td class="num">{{ "{:,.2f}".format(t.open_price) }}</td><td class="num">{{ "{:,.2f}".format(t.close_price) }}</td>
+          <td class="num faint">{{ (t.fees * R)|rs }}</td><td class="num {{ 'pos' if t.net > 0 else 'neg' }}"><b>{{ (t.net * R)|rs_signed }}</b></td>
+          <td class="faint">{{ t.open_ts|dt }}</td><td class="faint">{{ t.close_ts|dt }}</td></tr>
+        {% else %}<tr><td colspan="9" class="empty">Closed trades appear here once a position is fully closed.</td></tr>{% endfor %}
+        </tbody></table></div>
+    </section>
+  </div>
+{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if a %}
+<script>
+const snaps = {{ snaps|tojson }}, radar = {{ s.radar|tojson }};
+const $ = id => document.getElementById(id);
+function tickClock() {
+  const left = Math.max(0, +$("reset").dataset.at - Date.now() / 1000), h = Math.floor(left / 3600), m = Math.floor(left % 3600 / 60), s = Math.floor(left % 60);
+  $("reset").textContent = [h, m, s].map(v => String(v).padStart(2, "0")).join(":");
+  const now = new Date(), uh = now.getUTCHours() + now.getUTCMinutes() / 60;
+  $("utc").textContent = now.toISOString().slice(11, 16) + " UTC";
+  $("hnow").style.left = `calc(86px + (100% - 86px) * ${uh / 24})`;
+  document.querySelectorAll(".htrack i").forEach(i => i.classList.toggle("open", uh >= +i.dataset.s && uh < +i.dataset.e));
+}
+tickClock(); setInterval(tickClock, 1000);
+
+(function eq() {
+  const svg = $("eqchart");
+  if (snaps.length < 2) { $("eqnote").textContent = "Your equity curve fills in as you trade."; return; }
+  const ys = snaps.map(s => s.equity), lo = Math.min(...ys), hi = Math.max(...ys), pad = (hi - lo) * .12 || 1;
+  const t0 = snaps[0].ts, t1 = snaps[snaps.length - 1].ts;
+  const X = t => (t - t0) / (t1 - t0 || 1) * 1000, Y = v => 230 - (v - (lo - pad)) / ((hi + pad) - (lo - pad)) * 230;
+  const pts = snaps.map(s => `${X(s.ts).toFixed(1)},${Y(s.equity).toFixed(1)}`).join(" ");
+  const c = ys[ys.length - 1] >= ys[0] ? "#2ED3A3" : "#FF6B6B";
+  svg.innerHTML = `<defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${c}" stop-opacity=".25"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></linearGradient></defs>
+    <polygon points="0,230 ${pts} 1000,230" fill="url(#g)"/><polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+})();
+
+(function drawRadar() {
+  const svg = document.querySelector(".radar"), keys = Object.keys(radar), cx = 150, cy = 130, r = 92, n = keys.length;
+  const pt = (i, v) => { const a = -Math.PI / 2 + i * 2 * Math.PI / n; return [cx + Math.cos(a) * r * v, cy + Math.sin(a) * r * v]; };
+  let g = "";
+  [0.25, 0.5, 0.75, 1].forEach(k => g += `<polygon points="${keys.map((_, i) => pt(i, k).join(",")).join(" ")}" fill="none" stroke="#243150"/>`);
+  keys.forEach((k, i) => { const [x, y] = pt(i, 1), [lx, ly] = pt(i, 1.2);
+    g += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#243150"/>`;
+    g += `<text x="${lx}" y="${ly}" fill="#8C98B6" font-size="11" font-weight="600" text-anchor="${Math.abs(lx - cx) < 8 ? "middle" : lx > cx ? "start" : "end"}" dominant-baseline="middle">${k} ${Math.round(radar[k])}</text>`; });
+  g += `<polygon points="${keys.map((k, i) => pt(i, Math.max(0.03, radar[k] / 100)).join(",")).join(" ")}" fill="rgba(139,124,246,.28)" stroke="#8B7CF6" stroke-width="2"/>`;
+  svg.innerHTML = g;
+})();
+</script>
+{% endif %}
+{% endblock %}

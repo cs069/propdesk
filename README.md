@@ -23,6 +23,17 @@ cd propdesk
 It starts in **paper mode**: simulated fills on live Delta prices, no keys and no money, so you can try everything safely.
 To let friends on your Wi-Fi open it, add `HOST=0.0.0.0` to `.env` and share `http://<your-PC-IP>:8000`.
 
+## Dashboard
+After login your friend lands on a dashboard with:
+- Total P&L in ₹, their profit share, win rate and profit factor.
+- A countdown to the daily reset.
+- Closed trades, average, best and worst trade, and average holding time.
+- An equity curve and account health: max loss, start and goal on one bar, plus how much of each limit is used.
+- Long vs short split, win rate by session (Asia, London, New York) and a live market-hours strip.
+- A trading-style radar (win rate, risk:reward, stop-loss use, consistency, discipline) and a closed-trades table.
+
+Closed trades are rebuilt from the fills stored for each account, synced from Delta every 30 seconds and right after each order.
+
 ## What your friend sees: a Delta-style trading terminal
 - **Top bar:** market switcher (BTCUSD, ETHUSD…) with last price, 24h change, mark price, 24h high/low, volume and funding. Their equity and today's P&L in ₹.
 - **Candlestick chart** (1m to 1d) with lines for their entry, stop-loss, take-profit, liquidation price and open orders.
@@ -31,8 +42,13 @@ To let friends on your Wi-Fi open it, add `HOST=0.0.0.0` to `.env` and share `ht
   - Limit or Market, buy or sell, quantity in contracts with 10/25/50/100% buttons (the maximum respects margin and the per-trade loss limit).
   - Leverage slider, stop-loss and take-profit with quick % buttons.
   - Before they place it: order value, margin, loss at the stop-loss and profit at the take-profit.
-- **Limit meters:** daily loss, max loss and profit goal, updating live.
-- **Tabs:** Positions (close one or all), Open orders (cancel; a stop-loss can't be cancelled while stop-losses are required), Fills, and Rules.
+- **Quantity:** in contracts, USD or coin, with a slider and 25/50/75/Max.
+- **Reduce-only and TP/SL toggles,** plus an estimated fee.
+- **"Daily limit hit at":** the price where this order would breach today's loss limit, also drawn on the chart.
+- **Account panel:** account value, today, a max-loss / start / goal bar, and daily loss, max loss and leverage used.
+- **Tabs:** Positions, Open orders, Closed trades, Fills, Activity (including blocked orders) and Rules.
+  A stop-loss can't be cancelled while stop-losses are required.
+- **Bottom strip:** top Delta movers and the connection status.
 
 **Where the data comes from:**
 - **Market data** (chart, order book, trades, prices) always comes from Delta Exchange's public API, so it matches Delta.
